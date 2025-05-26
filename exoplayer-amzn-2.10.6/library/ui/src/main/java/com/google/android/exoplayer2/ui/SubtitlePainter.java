@@ -352,6 +352,38 @@ import java.util.regex.Pattern;
       
       Log.d(TAG, "字幕文本: '" + plainText + "', 高亮单词: '" + highlightWord + "'");
       
+      // 对于自动生成的字幕，可能整个字幕就是一个单词
+      // 先尝试完全匹配
+      if (plainText.trim().equalsIgnoreCase(highlightWord)) {
+        Log.d(TAG, "完全匹配单词: '" + highlightWord + "'");
+        
+        // 添加背景色高亮
+        int highlightColor = HIGHLIGHT_COLOR;
+        highlightColor = (highlightColor & 0x00FFFFFF) | (HIGHLIGHT_ALPHA << 24); // 设置透明度
+        newCueText.setSpan(
+            new BackgroundColorSpan(highlightColor),
+            0,
+            plainText.length(),
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            
+        // 设置文字颜色为白色，使其在红色背景上更清晰
+        newCueText.setSpan(
+            new ForegroundColorSpan(HIGHLIGHT_TEXT_COLOR),
+            0,
+            plainText.length(),
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            
+        // 添加粗体样式
+        newCueText.setSpan(
+            new StyleSpan(android.graphics.Typeface.BOLD),
+            0,
+            plainText.length(),
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            
+        cueText = newCueText;
+        return; // 已找到匹配，不需要继续处理
+      }
+      
       // 使用与 SubtitleWordSelectionController 一致的分词方式
       String[] words = plainText.split("\\s+");
       

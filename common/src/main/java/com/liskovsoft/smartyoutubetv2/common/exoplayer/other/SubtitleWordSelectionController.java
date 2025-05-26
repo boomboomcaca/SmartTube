@@ -74,8 +74,6 @@ public class SubtitleWordSelectionController {
         
         // 高亮显示第一个单词
         highlightCurrentWord();
-        
-        MessageHelpers.showMessage(mContext, R.string.subtitle_word_selection_mode);
     }
     
     /**
@@ -100,8 +98,6 @@ public class SubtitleWordSelectionController {
         if (view != null) {
             view.setPlayWhenReady(true);
         }
-        
-        MessageHelpers.showMessage(mContext, R.string.subtitle_word_selection_exit);
     }
     
     /**
@@ -150,16 +146,24 @@ public class SubtitleWordSelectionController {
             return;
         }
         
-        // 获取最后一个字幕文本（通常是当前显示的）
-        Cue lastCue = cues.get(cues.size() - 1);
-        if (lastCue.text != null) {
-            mCurrentSubtitleText = lastCue.text.toString();
-            
-            // 如果在选词模式，更新单词列表
-            if (mIsWordSelectionMode) {
-                splitSubtitleIntoWords();
-                highlightCurrentWord();
+        // 合并所有字幕文本，确保包含完整的字幕内容
+        StringBuilder fullText = new StringBuilder();
+        for (Cue cue : cues) {
+            if (cue.text != null) {
+                if (fullText.length() > 0) {
+                    fullText.append(" ");
+                }
+                fullText.append(cue.text.toString());
             }
+        }
+        
+        mCurrentSubtitleText = fullText.toString();
+        Log.d(TAG, "设置字幕文本: " + mCurrentSubtitleText);
+        
+        // 如果在选词模式，更新单词列表
+        if (mIsWordSelectionMode) {
+            splitSubtitleIntoWords();
+            highlightCurrentWord();
         }
     }
     
@@ -297,7 +301,7 @@ public class SubtitleWordSelectionController {
         String currentWord = mWords[mCurrentWordIndex];
         
         // 显示翻译结果（这里只是一个示例，实际应该调用翻译API）
-        MessageHelpers.showMessage(mContext, "翻译: " + currentWord);
+        // MessageHelpers.showMessage(mContext, "翻译: " + currentWord);
         
         // TODO: 实现实际的翻译功能
     }
