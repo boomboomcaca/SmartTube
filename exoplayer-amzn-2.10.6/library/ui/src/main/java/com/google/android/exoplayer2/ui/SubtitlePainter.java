@@ -33,7 +33,9 @@ import android.text.TextPaint;
 import android.text.TextUtils;
 import android.text.style.AbsoluteSizeSpan;
 import android.text.style.BackgroundColorSpan;
+import android.text.style.ForegroundColorSpan;
 import android.text.style.RelativeSizeSpan;
+import android.text.style.StyleSpan;
 import android.util.DisplayMetrics;
 import com.google.android.exoplayer2.text.CaptionStyleCompat;
 import com.google.android.exoplayer2.text.Cue;
@@ -41,6 +43,9 @@ import com.google.android.exoplayer2.util.Log;
 import com.google.android.exoplayer2.util.Util;
 import com.liskovsoft.sharedutils.misc.PaddingBackgroundColorSpan;
 import com.liskovsoft.sharedutils.misc.RoundedBackgroundSpan;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Paints subtitle {@link Cue}s.
@@ -53,6 +58,15 @@ import com.liskovsoft.sharedutils.misc.RoundedBackgroundSpan;
    * Ratio of inner padding to font size.
    */
   private static final float INNER_PADDING_RATIO = 0.125f;
+
+  // 用于匹配单词的正则表达式
+  private static final Pattern WORD_PATTERN = Pattern.compile("\\b\\w+\\b");
+  
+  // 高亮颜色
+  private static final int HIGHLIGHT_COLOR = Color.RED;
+  private static final int HIGHLIGHT_ALPHA = 150;
+  private static final int HIGHLIGHT_TEXT_COLOR = Color.WHITE;
+  private static final boolean ENABLE_FIRST_WORD_HIGHLIGHT = true;
 
   // Styled dimensions.
   private final float outlineWidth;
@@ -279,6 +293,46 @@ import com.liskovsoft.sharedutils.misc.RoundedBackgroundSpan;
             Spanned.SPAN_PRIORITY);
         cueText = newCueText;
       }
+    }
+
+    // 实现第一个单词高亮功能
+    if (ENABLE_FIRST_WORD_HIGHLIGHT) {
+      SpannableStringBuilder newCueText = new SpannableStringBuilder(cueText);
+      String plainText = newCueText.toString();
+      Matcher matcher = WORD_PATTERN.matcher(plainText);
+      
+      if (matcher.find()) {
+        int start = matcher.start();
+        int end = matcher.end();
+        String firstWord = plainText.substring(start, end);
+        
+        Log.d(TAG, "高亮第一个单词: '" + firstWord + "' 位置: " + start + "-" + end);
+        
+        // 添加背景色高亮
+        int highlightColor = HIGHLIGHT_COLOR;
+        highlightColor = (highlightColor & 0x00FFFFFF) | (HIGHLIGHT_ALPHA << 24); // 设置透明度
+        newCueText.setSpan(
+            new BackgroundColorSpan(highlightColor),
+            start,
+            end,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            
+        // 设置文字颜色为白色，使其在红色背景上更清晰
+        newCueText.setSpan(
+            new ForegroundColorSpan(HIGHLIGHT_TEXT_COLOR),
+            start,
+            end,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            
+        // 添加粗体样式
+        newCueText.setSpan(
+            new StyleSpan(android.graphics.Typeface.BOLD),
+            start,
+            end,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+      }
+      
+      cueText = newCueText;
     }
 
     if (Color.alpha(backgroundColor) > 0) {
