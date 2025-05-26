@@ -20,6 +20,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.lang.reflect.Field;
 import android.util.Log;
+import java.net.HttpURLConnection;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.IOException;
+import java.net.URL;
+import android.app.Activity;
 
 /**
  * 控制器类，用于管理字幕选词功能
@@ -37,6 +43,7 @@ public class SubtitleWordSelectionController {
     private String[] mWords = new String[0];
     private int mCurrentWordIndex = 0;
     private TextView mSelectionOverlay;
+    private boolean mIsShowingDefinition = false; // 是否正在显示解释窗口
     
     public SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
         mContext = context;
@@ -65,14 +72,12 @@ public class SubtitleWordSelectionController {
         
         // 进入选词模式
         mIsWordSelectionMode = true;
+        mIsShowingDefinition = false;
         
         // 分割当前字幕文本为单词
         splitSubtitleIntoWords();
         
-        // 显示选词覆盖层
-        showSelectionOverlay();
-        
-        // 高亮显示第一个单词
+        // 高亮显示第一个单词（但不显示覆盖层）
         highlightCurrentWord();
     }
     
@@ -115,21 +120,33 @@ public class SubtitleWordSelectionController {
         
         switch (event.getKeyCode()) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                selectPreviousWord();
+                if (!mIsShowingDefinition) {
+                    selectPreviousWord();
+                }
                 return true;
                 
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                selectNextWord();
+                if (!mIsShowingDefinition) {
+                    selectNextWord();
+                }
                 return true;
                 
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
-                translateCurrentWord();
+                if (!mIsShowingDefinition) {
+                    translateCurrentWord();
+                }
                 return true;
                 
             case KeyEvent.KEYCODE_BACK:
             case KeyEvent.KEYCODE_ESCAPE:
-                exitWordSelectionMode();
+                if (mIsShowingDefinition) {
+                    // 如果正在显示解释窗口，先隐藏窗口
+                    hideDefinitionOverlay();
+                } else {
+                    // 否则退出选词模式
+                    exitWordSelectionMode();
+                }
                 return true;
                 
             default:
@@ -237,11 +254,6 @@ public class SubtitleWordSelectionController {
         
         String currentWord = mWords[mCurrentWordIndex];
         
-        // 更新选词覆盖层
-        if (mSelectionOverlay != null) {
-            mSelectionOverlay.setText(currentWord);
-        }
-        
         // 在字幕中高亮显示当前单词
         highlightWordInSubtitle(currentWord);
     }
@@ -300,10 +312,220 @@ public class SubtitleWordSelectionController {
         
         String currentWord = mWords[mCurrentWordIndex];
         
-        // 显示翻译结果（这里只是一个示例，实际应该调用翻译API）
-        // MessageHelpers.showMessage(mContext, "翻译: " + currentWord);
+        // 显示覆盖层和加载提示
+        showDefinitionOverlay(currentWord + "\n加载中...");
         
-        // TODO: 实现实际的翻译功能
+        // 创建一个新线程来执行网络请求，避免阻塞主线程
+        new Thread(() -> {
+            String definition = fetchWordDefinition(currentWord);
+            
+            // 回到主线程更新 UI
+            if (mContext instanceof Activity) {
+                ((Activity) mContext).runOnUiThread(() -> {
+                    if (mSelectionOverlay != null && mIsWordSelectionMode) {
+                        // 显示单词和解释
+                        showDefinitionOverlay(currentWord + "\n\n" + definition);
+                    }
+                });
+            }
+        }).start();
+    }
+    
+    /**
+     * 显示解释覆盖层
+     */
+    private void showDefinitionOverlay(String text) {
+        if (mSelectionOverlay != null && mRootView != null) {
+            // 如果覆盖层还没有添加到根视图，先添加
+            if (mSelectionOverlay.getParent() == null) {
+                mRootView.addView(mSelectionOverlay);
+            }
+            
+            mSelectionOverlay.setText(text);
+            mSelectionOverlay.setVisibility(View.VISIBLE);
+            mIsShowingDefinition = true;
+        }
+    }
+    
+    /**
+     * 隐藏解释覆盖层
+     */
+    private void hideDefinitionOverlay() {
+        if (mSelectionOverlay != null) {
+            mSelectionOverlay.setVisibility(View.GONE);
+            mIsShowingDefinition = false;
+        }
+    }
+    
+    /**
+     * 从 Free Dictionary API 获取单词解释
+     * @param word 要查询的单词
+     * @return 单词解释
+     */
+    private String fetchWordDefinition(String word) {
+        HttpURLConnection connection = null;
+        BufferedReader reader = null;
+        StringBuilder result = new StringBuilder();
+        
+        try {
+            // 使用 WordsAPI，这个 API 提供更详细的解释，适合中文学习者
+            // 注意：此 API 需要订阅密钥，这里使用免费的 Free Dictionary API 作为替代
+            URL url = new URL("https://api.dictionaryapi.dev/api/v2/entries/en/" + word.toLowerCase());
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(5000);
+            
+            // 获取响应状态码
+            int responseCode = connection.getResponseCode();
+            
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                // 读取响应内容
+                reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    result.append(line);
+                }
+                
+                // 解析 JSON 响应
+                return parseDefinitionForChineseLearner(result.toString());
+            } else {
+                return "无法获取解释 (错误码: " + responseCode + ")";
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "获取单词解释失败: " + e.getMessage(), e);
+            return "获取解释失败: " + e.getMessage();
+        } finally {
+            // 关闭连接和读取器
+            if (connection != null) {
+                connection.disconnect();
+            }
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (IOException e) {
+                    Log.e(TAG, "关闭读取器失败: " + e.getMessage(), e);
+                }
+            }
+        }
+    }
+    
+    /**
+     * 解析 Free Dictionary API 的 JSON 响应，以中文学习者的角度格式化
+     * @param jsonResponse JSON 响应字符串
+     * @return 格式化的单词解释
+     */
+    private String parseDefinitionForChineseLearner(String jsonResponse) {
+        try {
+            // 简单解析 JSON 响应，提取对中文学习者有用的信息
+            if (jsonResponse.startsWith("[") && jsonResponse.contains("\"meanings\"")) {
+                StringBuilder definition = new StringBuilder();
+                
+                // 提取音标（如果有）
+                int phoneticsIndex = jsonResponse.indexOf("\"phonetic\"");
+                if (phoneticsIndex > 0) {
+                    int phoneticStart = jsonResponse.indexOf("\"", phoneticsIndex + 11) + 1;
+                    int phoneticEnd = jsonResponse.indexOf("\"", phoneticStart);
+                    if (phoneticStart > 0 && phoneticEnd > phoneticStart) {
+                        String phonetic = jsonResponse.substring(phoneticStart, phoneticEnd);
+                        definition.append("音标: ").append(phonetic).append("\n\n");
+                    }
+                }
+                
+                // 提取词性和定义
+                int meaningsIndex = jsonResponse.indexOf("\"meanings\"");
+                if (meaningsIndex > 0) {
+                    int partOfSpeechIndex = jsonResponse.indexOf("\"partOfSpeech\"", meaningsIndex);
+                    while (partOfSpeechIndex > 0) {
+                        // 提取词性
+                        int partOfSpeechStart = jsonResponse.indexOf("\"", partOfSpeechIndex + 15) + 1;
+                        int partOfSpeechEnd = jsonResponse.indexOf("\"", partOfSpeechStart);
+                        String partOfSpeech = jsonResponse.substring(partOfSpeechStart, partOfSpeechEnd);
+                        
+                        // 翻译词性为中文
+                        String chinesePartOfSpeech = translatePartOfSpeech(partOfSpeech);
+                        definition.append("【").append(chinesePartOfSpeech).append("】\n");
+                        
+                        // 提取定义
+                        int definitionsIndex = jsonResponse.indexOf("\"definitions\"", partOfSpeechEnd);
+                        if (definitionsIndex > 0) {
+                            int definitionIndex = jsonResponse.indexOf("\"definition\"", definitionsIndex);
+                            int exampleIndex = jsonResponse.indexOf("\"example\"", definitionsIndex);
+                            
+                            if (definitionIndex > 0) {
+                                int definitionStart = jsonResponse.indexOf("\"", definitionIndex + 13) + 1;
+                                int definitionEnd = jsonResponse.indexOf("\"", definitionStart);
+                                String def = jsonResponse.substring(definitionStart, definitionEnd);
+                                
+                                definition.append("- ").append(def).append("\n");
+                                
+                                // 提取例句（如果有）
+                                if (exampleIndex > 0 && exampleIndex < jsonResponse.indexOf("\"definitions\"", definitionIndex + 1)) {
+                                    int exampleStart = jsonResponse.indexOf("\"", exampleIndex + 10) + 1;
+                                    int exampleEnd = jsonResponse.indexOf("\"", exampleStart);
+                                    if (exampleStart > 0 && exampleEnd > exampleStart) {
+                                        String example = jsonResponse.substring(exampleStart, exampleEnd);
+                                        definition.append("  例句: ").append(example).append("\n");
+                                    }
+                                }
+                                
+                                definition.append("\n");
+                            }
+                        }
+                        
+                        // 查找下一个词性
+                        partOfSpeechIndex = jsonResponse.indexOf("\"partOfSpeech\"", partOfSpeechEnd + 100);
+                        
+                        // 限制只显示前三个定义，避免太长
+                        if (definition.length() > 500) {
+                            definition.append("...(更多解释已省略)");
+                            break;
+                        }
+                    }
+                }
+                
+                if (definition.length() > 0) {
+                    return definition.toString();
+                }
+            }
+            
+            return "无法解析单词解释";
+        } catch (Exception e) {
+            Log.e(TAG, "解析单词解释失败: " + e.getMessage(), e);
+            return "解析解释失败: " + e.getMessage();
+        }
+    }
+    
+    /**
+     * 将英文词性翻译为中文
+     * @param partOfSpeech 英文词性
+     * @return 中文词性
+     */
+    private String translatePartOfSpeech(String partOfSpeech) {
+        switch (partOfSpeech.toLowerCase()) {
+            case "noun":
+                return "名词";
+            case "verb":
+                return "动词";
+            case "adjective":
+                return "形容词";
+            case "adverb":
+                return "副词";
+            case "pronoun":
+                return "代词";
+            case "preposition":
+                return "介词";
+            case "conjunction":
+                return "连词";
+            case "interjection":
+                return "感叹词";
+            case "determiner":
+                return "限定词";
+            case "article":
+                return "冠词";
+            default:
+                return partOfSpeech; // 如果不能翻译，返回原词性
+        }
     }
     
     /**
@@ -312,33 +534,30 @@ public class SubtitleWordSelectionController {
     private void createSelectionOverlay() {
         mSelectionOverlay = new TextView(mContext);
         mSelectionOverlay.setTextColor(Color.WHITE);
-        mSelectionOverlay.setBackgroundColor(Color.argb(180, 0, 0, 0));
-        mSelectionOverlay.setTextSize(24);
-        mSelectionOverlay.setPadding(40, 20, 40, 20);
+        mSelectionOverlay.setBackgroundColor(Color.argb(220, 0, 0, 0));
+        mSelectionOverlay.setTextSize(18);
+        mSelectionOverlay.setPadding(50, 30, 50, 30);
         
+        // 设置多行显示和自动换行
+        mSelectionOverlay.setSingleLine(false);
+        mSelectionOverlay.setMaxLines(15);
+        mSelectionOverlay.setEllipsize(null);
+        mSelectionOverlay.setHorizontallyScrolling(false);
+        
+        // 设置文本对齐方式
+        mSelectionOverlay.setGravity(android.view.Gravity.CENTER);
+        
+        // 设置布局参数
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
         );
         params.gravity = android.view.Gravity.CENTER;
+        params.width = (int) (mContext.getResources().getDisplayMetrics().widthPixels * 0.7f); // 设置宽度为屏幕宽度的70%
         mSelectionOverlay.setLayoutParams(params);
         
         // 默认隐藏
         mSelectionOverlay.setVisibility(View.GONE);
-    }
-    
-    /**
-     * 显示选词覆盖层
-     */
-    private void showSelectionOverlay() {
-        if (mSelectionOverlay != null && mRootView != null) {
-            // 如果覆盖层还没有添加到根视图，先添加
-            if (mSelectionOverlay.getParent() == null) {
-                mRootView.addView(mSelectionOverlay);
-            }
-            
-            mSelectionOverlay.setVisibility(View.VISIBLE);
-        }
     }
     
     /**
