@@ -18,6 +18,8 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.lang.reflect.Field;
+import android.util.Log;
 
 /**
  * 控制器类，用于管理字幕选词功能
@@ -86,6 +88,9 @@ public class SubtitleWordSelectionController {
         
         // 隐藏选词覆盖层
         hideSelectionOverlay();
+        
+        // 清除字幕中的高亮显示
+        clearSubtitleHighlight();
         
         // 退出选词模式
         mIsWordSelectionMode = false;
@@ -174,6 +179,8 @@ public class SubtitleWordSelectionController {
             return;
         }
         
+        Log.d(TAG, "分割字幕文本: " + mCurrentSubtitleText);
+        
         // 分割文本为单词（按空格分割）
         String[] words = mCurrentSubtitleText.split("\\s+");
         
@@ -181,9 +188,10 @@ public class SubtitleWordSelectionController {
         List<String> wordList = new ArrayList<>();
         for (String word : words) {
             // 清理单词（去除标点符号等）
-            word = word.replaceAll("[,.!?;:'\"]", "").trim();
-            if (!word.isEmpty()) {
-                wordList.add(word);
+            String cleanWord = word.replaceAll("[,.!?;:'\"]", "").trim();
+            if (!cleanWord.isEmpty()) {
+                wordList.add(cleanWord); // 保存清理后的单词
+                Log.d(TAG, "添加单词: '" + cleanWord + "' 原始单词: '" + word + "'");
             }
         }
         
@@ -229,6 +237,53 @@ public class SubtitleWordSelectionController {
         if (mSelectionOverlay != null) {
             mSelectionOverlay.setText(currentWord);
         }
+        
+        // 在字幕中高亮显示当前单词
+        highlightWordInSubtitle(currentWord);
+    }
+    
+    /**
+     * 在字幕中高亮显示指定单词
+     * @param word 要高亮的单词
+     */
+    private void highlightWordInSubtitle(String word) {
+        if (mSubtitleView == null || word == null || word.isEmpty()) {
+            return;
+        }
+        
+        try {
+            // 通过反射获取 SubtitleView 的内部实现
+            Field paintersField = mSubtitleView.getClass().getDeclaredField("painters");
+            paintersField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<Object> painters = (List<Object>) paintersField.get(mSubtitleView);
+            
+            if (painters != null && !painters.isEmpty()) {
+                // 清理单词（去除标点符号等），与分词时的处理保持一致
+                String cleanWord = word.replaceAll("[,.!?;:'\"]", "").trim();
+                
+                Log.d(TAG, "设置高亮单词: " + cleanWord + ", 字幕画笔数量: " + painters.size());
+                
+                // 为所有画笔设置高亮单词
+                for (Object painter : painters) {
+                    // 设置要高亮的单词
+                    Field highlightWordField = painter.getClass().getDeclaredField("highlightWord");
+                    highlightWordField.setAccessible(true);
+                    highlightWordField.set(painter, cleanWord);
+                    
+                    // 启用单词高亮
+                    Field enableWordHighlightField = painter.getClass().getDeclaredField("ENABLE_WORD_HIGHLIGHT");
+                    enableWordHighlightField.setAccessible(true);
+                    enableWordHighlightField.set(null, true);
+                }
+                
+                // 强制重绘字幕
+                mSubtitleView.invalidate();
+            }
+        } catch (Exception e) {
+            // 反射失败，记录错误但不中断程序
+            Log.e(TAG, "无法通过反射高亮字幕中的单词: " + e.getMessage(), e);
+        }
     }
     
     /**
@@ -272,10 +327,14 @@ public class SubtitleWordSelectionController {
      * 显示选词覆盖层
      */
     private void showSelectionOverlay() {
-        if (mSelectionOverlay.getParent() == null) {
-            mRootView.addView(mSelectionOverlay);
+        if (mSelectionOverlay != null && mRootView != null) {
+            // 如果覆盖层还没有添加到根视图，先添加
+            if (mSelectionOverlay.getParent() == null) {
+                mRootView.addView(mSelectionOverlay);
+            }
+            
+            mSelectionOverlay.setVisibility(View.VISIBLE);
         }
-        mSelectionOverlay.setVisibility(View.VISIBLE);
     }
     
     /**
@@ -292,5 +351,41 @@ public class SubtitleWordSelectionController {
      */
     public boolean isInWordSelectionMode() {
         return mIsWordSelectionMode;
+    }
+    
+    /**
+     * 清除字幕中的高亮显示
+     */
+    private void clearSubtitleHighlight() {
+        try {
+            // 通过反射获取 SubtitleView 的内部实现
+            Field paintersField = mSubtitleView.getClass().getDeclaredField("painters");
+            paintersField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<Object> painters = (List<Object>) paintersField.get(mSubtitleView);
+            
+            if (painters != null && !painters.isEmpty()) {
+                Log.d(TAG, "清除高亮单词, 字幕画笔数量: " + painters.size());
+                
+                // 为所有画笔清除高亮单词
+                for (Object painter : painters) {
+                    // 清除高亮单词
+                    Field highlightWordField = painter.getClass().getDeclaredField("highlightWord");
+                    highlightWordField.setAccessible(true);
+                    highlightWordField.set(painter, null);
+                }
+                
+                // 禁用单词高亮
+                Field enableWordHighlightField = painters.get(0).getClass().getDeclaredField("ENABLE_WORD_HIGHLIGHT");
+                enableWordHighlightField.setAccessible(true);
+                enableWordHighlightField.set(null, false);
+                
+                // 强制重绘字幕
+                mSubtitleView.invalidate();
+            }
+        } catch (Exception e) {
+            // 反射失败，记录错误但不中断程序
+            Log.e(TAG, "无法通过反射清除字幕中的高亮: " + e.getMessage(), e);
+        }
     }
 } 

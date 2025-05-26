@@ -44,6 +44,8 @@ import com.google.android.exoplayer2.util.Util;
 import com.liskovsoft.sharedutils.misc.PaddingBackgroundColorSpan;
 import com.liskovsoft.sharedutils.misc.RoundedBackgroundSpan;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -66,7 +68,11 @@ import java.util.regex.Pattern;
   private static final int HIGHLIGHT_COLOR = Color.RED;
   private static final int HIGHLIGHT_ALPHA = 150;
   private static final int HIGHLIGHT_TEXT_COLOR = Color.WHITE;
-  private static final boolean ENABLE_FIRST_WORD_HIGHLIGHT = true;
+  private static final boolean ENABLE_FIRST_WORD_HIGHLIGHT = false; // 禁用第一个单词高亮
+  public static boolean ENABLE_WORD_HIGHLIGHT = false; // 启用指定单词高亮
+  
+  // 当前要高亮的单词
+  public String highlightWord;
 
   // Styled dimensions.
   private final float outlineWidth;
@@ -184,7 +190,11 @@ import java.util.regex.Pattern;
       windowColor = (cue.windowColorSet && applyEmbeddedStyles)
           ? cue.windowColor : style.windowColor;
     }
-    if (areCharSequencesEqual(this.cueText, cue.text)
+    
+    // 即使文本变化，也要重新应用高亮
+    boolean forceUpdate = ENABLE_WORD_HIGHLIGHT && highlightWord != null && !highlightWord.isEmpty();
+    
+    if (!forceUpdate && areCharSequencesEqual(this.cueText, cue.text)
         && Util.areEqual(this.cueTextAlignment, cue.textAlignment)
         && this.cueBitmap == cue.bitmap
         && this.cueLine == cue.line
@@ -330,6 +340,68 @@ import java.util.regex.Pattern;
             start,
             end,
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+      }
+      
+      cueText = newCueText;
+    }
+    
+    // 实现指定单词高亮功能
+    if (ENABLE_WORD_HIGHLIGHT && highlightWord != null && !highlightWord.isEmpty()) {
+      SpannableStringBuilder newCueText = new SpannableStringBuilder(cueText);
+      String plainText = newCueText.toString();
+      
+      Log.d(TAG, "字幕文本: '" + plainText + "', 高亮单词: '" + highlightWord + "'");
+      
+      // 使用与 SubtitleWordSelectionController 一致的分词方式
+      String[] words = plainText.split("\\s+");
+      
+      int position = 0;
+      for (String word : words) {
+          // 跳过空白字符
+          while (position < plainText.length() && Character.isWhitespace(plainText.charAt(position))) {
+              position++;
+          }
+          
+          if (position < plainText.length()) {
+              // 清理单词（去除标点符号等）以便比较
+              String cleanWord = word.replaceAll("[,.!?;:'\"]", "").trim();
+              
+              if (!cleanWord.isEmpty()) {
+                  // 记录原始单词在文本中的位置（包含标点符号）
+                  int start = position;
+                  int end = position + word.length();
+                  
+                  // 如果当前单词（不考虑大小写）与目标单词匹配
+                  if (cleanWord.equalsIgnoreCase(highlightWord)) {
+                      Log.d(TAG, "高亮单词: '" + cleanWord + "' 位置: " + start + "-" + end + " 原始单词: '" + word + "'");
+                      
+                      // 添加背景色高亮
+                      int highlightColor = HIGHLIGHT_COLOR;
+                      highlightColor = (highlightColor & 0x00FFFFFF) | (HIGHLIGHT_ALPHA << 24); // 设置透明度
+                      newCueText.setSpan(
+                          new BackgroundColorSpan(highlightColor),
+                          start,
+                          end,
+                          Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                          
+                      // 设置文字颜色为白色，使其在红色背景上更清晰
+                      newCueText.setSpan(
+                          new ForegroundColorSpan(HIGHLIGHT_TEXT_COLOR),
+                          start,
+                          end,
+                          Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                          
+                      // 添加粗体样式
+                      newCueText.setSpan(
+                          new StyleSpan(android.graphics.Typeface.BOLD),
+                          start,
+                          end,
+                          Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                  }
+                  
+                  position = end;
+              }
+          }
       }
       
       cueText = newCueText;
