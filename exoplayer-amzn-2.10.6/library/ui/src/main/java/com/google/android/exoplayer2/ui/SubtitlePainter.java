@@ -352,91 +352,122 @@ import java.util.regex.Pattern;
       
       Log.d(TAG, "字幕文本: '" + plainText + "', 高亮单词: '" + highlightWord + "'");
       
-      // 对于自动生成的字幕，可能整个字幕就是一个单词
-      // 先尝试完全匹配
-      if (plainText.trim().equalsIgnoreCase(highlightWord)) {
-        Log.d(TAG, "完全匹配单词: '" + highlightWord + "'");
-        
-        // 添加背景色高亮
-        int highlightColor = HIGHLIGHT_COLOR;
-        highlightColor = (highlightColor & 0x00FFFFFF) | (HIGHLIGHT_ALPHA << 24); // 设置透明度
-        newCueText.setSpan(
-            new BackgroundColorSpan(highlightColor),
-            0,
-            plainText.length(),
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            
-        // 设置文字颜色为白色，使其在红色背景上更清晰
-        newCueText.setSpan(
-            new ForegroundColorSpan(HIGHLIGHT_TEXT_COLOR),
-            0,
-            plainText.length(),
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            
-        // 添加粗体样式
-        newCueText.setSpan(
-            new StyleSpan(android.graphics.Typeface.BOLD),
-            0,
-            plainText.length(),
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            
-        cueText = newCueText;
-        return; // 已找到匹配，不需要继续处理
-      }
-      
       // 使用与 SubtitleWordSelectionController 一致的分词方式
       String[] words = plainText.split("\\s+");
       
-      int position = 0;
-      for (String word : words) {
-          // 跳过空白字符
-          while (position < plainText.length() && Character.isWhitespace(plainText.charAt(position))) {
-              position++;
+      // 检测文本是否包含CJK字符（中文、日文、韩文）
+      boolean containsCJK = false;
+      for (int i = 0; i < plainText.length(); i++) {
+          char c = plainText.charAt(i);
+          // 中文范围: \u4E00-\u9FFF, 日文片假名: \u3040-\u309F, 韩文: \uAC00-\uD7A3 等
+          if ((c >= '\u4E00' && c <= '\u9FFF') || // 中文
+              (c >= '\u3040' && c <= '\u30FF') || // 日文平假名和片假名
+              (c >= '\uAC00' && c <= '\uD7A3')) { // 韩文
+              containsCJK = true;
+              break;
           }
+      }
+
+      if (containsCJK) {
+          // CJK文字处理：逐字分词
+          int position = 0;
           
-          if (position < plainText.length()) {
-              // 清理单词（去除标点符号等）以便比较
-              String cleanWord = word.replaceAll("[,.!?;:'\"]", "").trim();
+          for (int i = 0; i < plainText.length(); i++) {
+              char c = plainText.charAt(i);
               
-              if (!cleanWord.isEmpty()) {
-                  // 记录原始单词在文本中的位置（包含标点符号）
-                  int start = position;
-                  int end = position + word.length();
+              // 如果是CJK字符，则作为单独的词
+              if ((c >= '\u4E00' && c <= '\u9FFF') || // 中文
+                  (c >= '\u3040' && c <= '\u30FF') || // 日文平假名和片假名
+                  (c >= '\uAC00' && c <= '\uD7A3')) { // 韩文
                   
-                  // 如果当前单词（不考虑大小写）与目标单词匹配
-                  if (cleanWord.equalsIgnoreCase(highlightWord)) {
-                      Log.d(TAG, "高亮单词: '" + cleanWord + "' 位置: " + start + "-" + end + " 原始单词: '" + word + "'");
+                  // 当前字符作为单词
+                  String currentChar = String.valueOf(c);
+                  
+                  // 如果当前字符与目标单词匹配
+                  if (currentChar.equals(highlightWord)) {
+                      Log.d(TAG, "高亮CJK字符: '" + currentChar + "' 位置: " + i);
                       
                       // 添加背景色高亮
                       int highlightColor = HIGHLIGHT_COLOR;
                       highlightColor = (highlightColor & 0x00FFFFFF) | (HIGHLIGHT_ALPHA << 24); // 设置透明度
                       newCueText.setSpan(
                           new BackgroundColorSpan(highlightColor),
-                          start,
-                          end,
+                          i,
+                          i + 1,
                           Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                           
                       // 设置文字颜色为白色，使其在红色背景上更清晰
                       newCueText.setSpan(
                           new ForegroundColorSpan(HIGHLIGHT_TEXT_COLOR),
-                          start,
-                          end,
+                          i,
+                          i + 1,
                           Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                           
                       // 添加粗体样式
                       newCueText.setSpan(
                           new StyleSpan(android.graphics.Typeface.BOLD),
-                          start,
-                          end,
+                          i,
+                          i + 1,
                           Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                   }
+              }
+          }
+      } else {
+          // 非CJK文字处理：使用原有的空格分词方式
+          int position = 0;
+          for (String word : words) {
+              // 跳过空白字符
+              while (position < plainText.length() && Character.isWhitespace(plainText.charAt(position))) {
+                  position++;
+              }
+              
+              if (position < plainText.length()) {
+                  // 清理单词（去除标点符号等）以便比较
+                  String cleanWord = word.replaceAll("[,.!?;:'\"]", "").trim();
                   
-                  position = end;
+                  if (!cleanWord.isEmpty()) {
+                      // 记录原始单词在文本中的位置（包含标点符号）
+                      int start = position;
+                      int end = position + word.length();
+                      
+                      // 如果当前单词（不考虑大小写）与目标单词匹配
+                      if (cleanWord.equalsIgnoreCase(highlightWord)) {
+                          Log.d(TAG, "高亮单词: '" + cleanWord + "' 位置: " + start + "-" + end + " 原始单词: '" + word + "'");
+                          
+                          // 添加背景色高亮
+                          int highlightColor = HIGHLIGHT_COLOR;
+                          highlightColor = (highlightColor & 0x00FFFFFF) | (HIGHLIGHT_ALPHA << 24); // 设置透明度
+                          newCueText.setSpan(
+                              new BackgroundColorSpan(highlightColor),
+                              start,
+                              end,
+                              Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                              
+                          // 设置文字颜色为白色，使其在红色背景上更清晰
+                          newCueText.setSpan(
+                              new ForegroundColorSpan(HIGHLIGHT_TEXT_COLOR),
+                              start,
+                              end,
+                              Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                              
+                          // 添加粗体样式
+                          newCueText.setSpan(
+                              new StyleSpan(android.graphics.Typeface.BOLD),
+                              start,
+                              end,
+                              Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                      }
+                      
+                      position += word.length();
+                  }
               }
           }
       }
       
       cueText = newCueText;
+    } else if (ENABLE_WORD_HIGHLIGHT) {
+      // 如果启用了高亮功能但没有指定高亮单词，记录日志以便调试
+      Log.d(TAG, "高亮功能已启用，但未指定高亮单词或单词为空");
     }
 
     if (Color.alpha(backgroundColor) > 0) {

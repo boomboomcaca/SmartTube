@@ -141,7 +141,8 @@ public class SubtitleManager implements TextOutput, OnDataChange {
             for (Cue cue : cues) {
                 if (cue.text != null) {
                     String text = cue.text.toString();
-                    if (text.split("\\s+").length > 1) {
+                    // 考虑 CJK 字符，一个 CJK 字符也可能是一个完整的单词
+                    if (text.split("\\s+").length > 1 && !containsOnlyCJK(text)) {
                         allSingleWords = false;
                         break;
                     }
@@ -178,6 +179,39 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         }
 
         return result;
+    }
+
+    /**
+     * 检查文本是否只包含 CJK 字符
+     * @param text 要检查的文本
+     * @return 如果文本只包含 CJK 字符，返回 true
+     */
+    private boolean containsOnlyCJK(String text) {
+        if (text == null || text.isEmpty()) {
+            return false;
+        }
+        
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            // 如果不是 CJK 字符且不是空白字符，则返回 false
+            if (!isCJKChar(c) && !Character.isWhitespace(c)) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * 检查字符是否为 CJK 字符
+     * @param c 要检查的字符
+     * @return 如果是 CJK 字符，返回 true
+     */
+    private boolean isCJKChar(char c) {
+        // 中文范围: \u4E00-\u9FFF, 日文片假名: \u3040-\u309F, 韩文: \uAC00-\uD7A3 等
+        return (c >= '\u4E00' && c <= '\u9FFF') || // 中文
+               (c >= '\u3040' && c <= '\u30FF') || // 日文平假名和片假名
+               (c >= '\uAC00' && c <= '\uD7A3');   // 韩文
     }
 
     private void configureSubtitleView() {
