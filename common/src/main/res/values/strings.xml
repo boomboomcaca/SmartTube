@@ -703,4 +703,7 @@
     <string name="card_preview_muted">Video without sound</string>
     <string name="card_preview_full">Video with sound</string>
     <string name="card_preview">Card preview</string>
+    <string name="no_subtitle_available">当前没有可用的字幕</string>
+    <string name="subtitle_word_selection_mode">字幕选词模式已启用</string>
+    <string name="subtitle_word_selection_exit">已退出字幕选词模式</string>
 </resources>

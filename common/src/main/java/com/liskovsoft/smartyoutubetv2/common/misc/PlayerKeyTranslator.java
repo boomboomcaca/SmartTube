@@ -5,6 +5,8 @@ import android.view.KeyEvent;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.smartyoutubetv2.common.R;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleWordSelectionController;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
@@ -38,6 +40,16 @@ public class PlayerKeyTranslator extends GlobalKeyTranslator {
     private final Runnable speedDownAction = () -> speedUp(false);
     private final Runnable volumeUpAction = () -> volumeUp(true);
     private final Runnable volumeDownAction = () -> volumeUp(false);
+    private final Runnable leftKeyAction = () -> {
+        // 检查是否有字幕并进入选词模式
+        checkAndEnterWordSelectionMode();
+    };
+    private final Runnable rightKeyAction = () -> {
+        // 检查是否有字幕并进入选词模式
+        checkAndEnterWordSelectionMode();
+    };
+    
+    private boolean mIsWordSelectionModeEnabled = false;
 
     public PlayerKeyTranslator(Context context) {
         super(context);
@@ -154,6 +166,63 @@ public class PlayerKeyTranslator extends GlobalKeyTranslator {
             actionMapping.put(KeyEvent.KEYCODE_DPAD_LEFT, volumeDownAction);
             actionMapping.put(KeyEvent.KEYCODE_DPAD_RIGHT, volumeUpAction);
         }
+
+        // 添加左右键进入选词模式的映射
+        if (isSubtitleWordSelectionEnabled()) {
+            // 只有在没有其他映射的情况下才添加选词功能的映射
+            if (!actionMapping.containsKey(KeyEvent.KEYCODE_DPAD_LEFT)) {
+                actionMapping.put(KeyEvent.KEYCODE_DPAD_LEFT, leftKeyAction);
+            }
+            
+            if (!actionMapping.containsKey(KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                actionMapping.put(KeyEvent.KEYCODE_DPAD_RIGHT, rightKeyAction);
+            }
+        }
+    }
+    
+    /**
+     * 检查是否在选词模式下，如果是则将按键事件传递给选词控制器处理
+     * 这个方法应该在按键事件处理前调用
+     * @param event 按键事件
+     * @return 如果事件被处理返回true，否则返回false
+     */
+    public boolean handleSubtitleWordSelectionKeyEvent(KeyEvent event) {
+        PlaybackPresenter playbackPresenter = getPlaybackPresenter();
+        if (playbackPresenter != null && playbackPresenter.getView() != null) {
+            SubtitleManager subtitleManager = playbackPresenter.getView().getSubtitleManager();
+            if (subtitleManager != null) {
+                SubtitleWordSelectionController controller = subtitleManager.getWordSelectionController();
+                if (controller != null && controller.isInWordSelectionMode()) {
+                    return controller.handleKeyEvent(event);
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 检查是否有字幕并进入选词模式
+     */
+    private void checkAndEnterWordSelectionMode() {
+        PlaybackPresenter playbackPresenter = getPlaybackPresenter();
+        if (playbackPresenter != null && playbackPresenter.getView() != null) {
+            SubtitleManager subtitleManager = playbackPresenter.getView().getSubtitleManager();
+            if (subtitleManager != null) {
+                SubtitleWordSelectionController controller = subtitleManager.getWordSelectionController();
+                if (controller != null && controller.hasSubtitleText()) {
+                    controller.enterWordSelectionMode();
+                }
+            }
+        }
+    }
+    
+    /**
+     * 检查是否启用了字幕选词功能
+     */
+    private boolean isSubtitleWordSelectionEnabled() {
+        // 这里可以添加一个设置选项来控制是否启用字幕选词功能
+        // 现在默认启用
+        return true;
     }
 
     private void speedUp(boolean up) {

@@ -9,6 +9,7 @@ import android.util.TypedValue;
 import android.view.View;
 import android.view.accessibility.CaptioningManager;
 import android.view.accessibility.CaptioningManager.CaptionStyle;
+import android.widget.FrameLayout;
 
 import androidx.annotation.RequiresApi;
 import androidx.core.content.ContextCompat;
@@ -33,6 +34,7 @@ public class SubtitleManager implements TextOutput, OnDataChange {
     private final AppPrefs mPrefs;
     private final PlayerData mPlayerData;
     private CharSequence subsBuffer;
+    private SubtitleWordSelectionController mWordSelectionController;
 
     public static class SubtitleStyle {
         public final int nameResId;
@@ -63,6 +65,12 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         mPlayerData = PlayerData.instance(activity);
         mPlayerData.setOnChange(this);
         configureSubtitleView();
+        
+        // 初始化字幕选词控制器
+        FrameLayout rootView = activity.findViewById(R.id.playback_fragment_root);
+        if (rootView != null && mSubtitleView != null) {
+            mWordSelectionController = new SubtitleWordSelectionController(activity, mSubtitleView, rootView);
+        }
     }
 
     @Override
@@ -72,8 +80,14 @@ public class SubtitleManager implements TextOutput, OnDataChange {
 
     @Override
     public void onCues(List<Cue> cues) {
+        // 更新字幕文本到选词控制器
+        if (mWordSelectionController != null) {
+            mWordSelectionController.setCurrentSubtitleText(cues);
+        }
+        
         if (mSubtitleView != null) {
-            mSubtitleView.setCues(forceCenterAlignment(cues));
+            List<Cue> alignedCues = forceCenterAlignment(cues);
+            mSubtitleView.setCues(alignedCues);
         }
     }
 
@@ -81,6 +95,20 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         if (mSubtitleView != null) {
             mSubtitleView.setVisibility(show ? View.VISIBLE : View.GONE);
         }
+    }
+    
+    /**
+     * 获取字幕选词控制器
+     */
+    public SubtitleWordSelectionController getWordSelectionController() {
+        if (mWordSelectionController == null && mSubtitleView != null) {
+            // 创建选词控制器
+            FrameLayout rootView = (FrameLayout) mSubtitleView.getParent();
+            if (rootView != null) {
+                mWordSelectionController = new SubtitleWordSelectionController(mContext, mSubtitleView, rootView);
+            }
+        }
+        return mWordSelectionController;
     }
 
     private List<SubtitleStyle> getSubtitleStyles() {

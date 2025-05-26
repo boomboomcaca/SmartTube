@@ -241,8 +241,9 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         //ExoPlayerInitializer.enableAudioFocus(mPlayer, false); // Disable focus in PIP
     }
 
-    public void onDispatchKeyEvent(KeyEvent event) {
+    public boolean onDispatchKeyEvent(KeyEvent event) {
         // NOP
+        return false;
     }
 
     public void onDispatchTouchEvent(MotionEvent event) {
@@ -1624,5 +1625,10 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
      */
     private boolean forbidShowOverlay(boolean show) {
         return show && isInPIPMode();
+    }
+
+    @Override
+    public SubtitleManager getSubtitleManager() {
+        return mSubtitleManager;
     }
 }

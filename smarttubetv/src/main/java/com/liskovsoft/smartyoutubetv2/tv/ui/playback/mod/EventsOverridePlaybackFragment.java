@@ -3,10 +3,16 @@ package com.liskovsoft.smartyoutubetv2.tv.ui.playback.mod;
 import android.os.Bundle;
 import android.view.InputEvent;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.View.OnKeyListener;
 import androidx.leanback.app.PlaybackSupportFragment;
 import androidx.leanback.widget.VerticalGridView;
 import com.liskovsoft.sharedutils.helpers.Helpers;
+import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.PlayerKeyTranslator;
+import com.liskovsoft.smartyoutubetv2.tv.ui.playback.PlaybackActivity;
 import com.liskovsoft.smartyoutubetv2.tv.ui.playback.mod.surface.SurfacePlaybackFragment;
 
 /**
@@ -14,9 +20,14 @@ import com.liskovsoft.smartyoutubetv2.tv.ui.playback.mod.surface.SurfacePlayback
  *  Fixing that for keys.
  */
 public class EventsOverridePlaybackFragment extends SurfacePlaybackFragment {
+    private PlayerKeyTranslator mKeyTranslator;
+    
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        
+        mKeyTranslator = new PlayerKeyTranslator(getContext());
+        mKeyTranslator.apply();
 
         Object onTouchInterceptListener = Helpers.getField(this, "mOnTouchInterceptListener");
 
@@ -32,6 +43,11 @@ public class EventsOverridePlaybackFragment extends SurfacePlaybackFragment {
     }
 
     boolean onInterceptInputEvent(InputEvent event) {
+        // 首先检查是否在选词模式下，如果是则将按键事件交给选词控制器处理
+        if (event instanceof KeyEvent && mKeyTranslator != null && mKeyTranslator.handleSubtitleWordSelectionKeyEvent((KeyEvent) event)) {
+            return true;
+        }
+        
         final boolean controlsHidden = !isControlsOverlayVisible();
         //if (DEBUG) Log.v(TAG, "onInterceptInputEvent hidden " + controlsHidden + " " + event);
         boolean consumeEvent = false;
@@ -108,5 +124,19 @@ public class EventsOverridePlaybackFragment extends SurfacePlaybackFragment {
     private boolean isInSeek() {
         Object mInSeek = Helpers.getField(this, "mInSeek");
         return mInSeek != null && (boolean) mInSeek;
+    }
+
+    /**
+     * 获取字幕管理器
+     */
+    private SubtitleManager getSubtitleManager() {
+        if (getActivity() instanceof PlaybackActivity) {
+            PlaybackActivity activity = (PlaybackActivity) getActivity();
+            PlaybackView view = activity.getPlaybackView();
+            if (view != null) {
+                return view.getSubtitleManager();
+            }
+        }
+        return null;
     }
 }

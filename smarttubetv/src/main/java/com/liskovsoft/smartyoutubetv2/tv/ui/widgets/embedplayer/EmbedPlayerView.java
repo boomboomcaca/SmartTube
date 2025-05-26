@@ -28,6 +28,7 @@ import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.renderer.CustomO
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.selector.RestoreTrackSelector;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager;
 
 import java.io.InputStream;
 import java.util.List;
@@ -603,5 +604,10 @@ public class EmbedPlayerView extends PlayerView implements PlaybackView {
         if (mExoPlayerController != null) {
             mExoPlayerController.setVolume(mute ? 0 : 1f);
         }
+    }
+
+    @Override
+    public SubtitleManager getSubtitleManager() {
+        return null; // 嵌入式播放器不支持字幕选词功能
     }
 }
