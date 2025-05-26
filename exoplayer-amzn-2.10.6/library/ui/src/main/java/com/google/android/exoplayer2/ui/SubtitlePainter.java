@@ -57,6 +57,30 @@ import java.util.regex.Pattern;
   private static final String TAG = "SubtitlePainter";
 
   /**
+   * 字幕内容变化回调接口
+   */
+  public interface OnCueTextChangedListener {
+    /**
+     * 当字幕内容变化时调用
+     * @param cue 新的字幕内容
+     */
+    void onCueTextChanged(Cue cue);
+  }
+  
+  /**
+   * 字幕内容变化监听器
+   */
+  private OnCueTextChangedListener cueTextChangedListener;
+  
+  /**
+   * 设置字幕内容变化监听器
+   * @param listener 监听器
+   */
+  public void setOnCueTextChangedListener(OnCueTextChangedListener listener) {
+    this.cueTextChangedListener = listener;
+  }
+
+  /**
    * Ratio of inner padding to font size.
    */
   private static final float INNER_PADDING_RATIO = 0.125f;
@@ -193,6 +217,14 @@ import java.util.regex.Pattern;
     
     // 即使文本变化，也要重新应用高亮
     boolean forceUpdate = ENABLE_WORD_HIGHLIGHT && highlightWord != null && !highlightWord.isEmpty();
+    
+    // 检查字幕内容是否变化
+    boolean cueTextChanged = !areCharSequencesEqual(this.cueText, cue.text);
+    
+    // 如果字幕内容变化且有监听器，通知监听器
+    if (cueTextChanged && cueTextChangedListener != null) {
+      cueTextChangedListener.onCueTextChanged(cue);
+    }
     
     if (!forceUpdate && areCharSequencesEqual(this.cueText, cue.text)
         && Util.areEqual(this.cueTextAlignment, cue.textAlignment)

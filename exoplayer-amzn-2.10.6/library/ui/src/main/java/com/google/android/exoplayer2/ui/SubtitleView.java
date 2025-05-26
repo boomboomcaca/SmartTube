@@ -61,6 +61,20 @@ public final class SubtitleView extends View implements TextOutput {
   private CaptionStyleCompat style;
   private float bottomPaddingFraction;
 
+  /**
+   * 字幕内容变化监听器
+   */
+  private final SubtitlePainter.OnCueTextChangedListener cueTextChangedListener =
+      new SubtitlePainter.OnCueTextChangedListener() {
+        @Override
+        public void onCueTextChanged(Cue cue) {
+          // 当字幕内容变化时，更新当前字幕
+          // 注意：这里不需要调用setCues，因为字幕内容变化是由painter绘制时检测到的
+          // 实际上cues已经通过setCues方法更新过了
+          invalidate(); // 刷新视图
+        }
+      };
+
   public SubtitleView(Context context) {
     this(context, /* attrs= */ null);
   }
@@ -100,7 +114,9 @@ public final class SubtitleView extends View implements TextOutput {
     // Ensure we have sufficient painters.
     int cueCount = (cues == null) ? 0 : cues.size();
     while (painters.size() < cueCount) {
-      painters.add(new SubtitlePainter(getContext()));
+      SubtitlePainter painter = new SubtitlePainter(getContext());
+      painter.setOnCueTextChangedListener(cueTextChangedListener);
+      painters.add(painter);
     }
     // Invalidate to trigger drawing.
     invalidate();
@@ -248,6 +264,15 @@ public final class SubtitleView extends View implements TextOutput {
     this.bottomPaddingFraction = bottomPaddingFraction;
     // Invalidate to trigger drawing.
     invalidate();
+  }
+
+  /**
+   * 获取当前字幕内容
+   * @return 当前显示的字幕列表
+   */
+  @Nullable
+  public List<Cue> getCues() {
+    return cues;
   }
 
   @Override

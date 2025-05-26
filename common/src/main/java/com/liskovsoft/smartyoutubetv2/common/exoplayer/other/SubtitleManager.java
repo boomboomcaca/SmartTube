@@ -88,6 +88,11 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         if (mSubtitleView != null) {
             List<Cue> alignedCues = forceCenterAlignment(cues);
             mSubtitleView.setCues(alignedCues);
+            
+            // 确保选词控制器使用最新的字幕内容
+            if (mWordSelectionController != null && alignedCues != cues) {
+                mWordSelectionController.setCurrentSubtitleText(alignedCues);
+            }
         }
     }
 
