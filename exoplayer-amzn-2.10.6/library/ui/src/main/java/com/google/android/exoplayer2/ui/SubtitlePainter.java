@@ -97,6 +97,8 @@ import java.util.regex.Pattern;
   
   // 当前要高亮的单词
   public String highlightWord;
+  // 当前要高亮的单词在字幕中的位置
+  public int highlightWordPosition = -1;
 
   // Styled dimensions.
   private final float outlineWidth;
@@ -397,7 +399,7 @@ import java.util.regex.Pattern;
       // 处理可能的换行符，确保多行字幕能正确分词
       plainText = plainText.replace("\n", " ").replace("\r", " ");
       
-      Log.d(TAG, "字幕文本: '" + plainText + "', 高亮单词: '" + highlightWord + "'");
+      Log.d(TAG, "字幕文本: '" + plainText + "', 高亮单词: '" + highlightWord + "', 位置: " + highlightWordPosition);
       
       // 检测文本是否包含CJK字符（中文、日文、韩文）
       boolean containsCJK = false;
@@ -552,40 +554,70 @@ import java.util.regex.Pattern;
       }
       
       // 现在，查找要高亮的单词
+      // 如果没有指定位置或位置为-1，则高亮第一个匹配的单词
+      // 否则高亮与位置最接近的单词
+      int bestMatchIndex = -1;
+      int bestMatchDistance = Integer.MAX_VALUE;
+      
       for (int i = 0; i < wordList.size(); i++) {
           String word = wordList.get(i);
           if (word.equalsIgnoreCase(highlightWord)) {
               int start = wordStartPositions.get(i);
-              int end = wordEndPositions.get(i);
               
-              Log.d(TAG, "高亮单词: '" + word + "' 位置: " + start + "-" + end);
+              // 如果没有指定位置信息，使用第一个匹配的单词
+              if (highlightWordPosition < 0) {
+                  bestMatchIndex = i;
+                  break;
+              }
               
-              // 添加背景色高亮
-              int highlightColor = HIGHLIGHT_COLOR;
-              highlightColor = (highlightColor & 0x00FFFFFF) | (HIGHLIGHT_ALPHA << 24); // 设置透明度
-              newCueText.setSpan(
-                  new BackgroundColorSpan(highlightColor),
-                  start,
-                  end,
-                  Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                  
-              // 设置文字颜色为白色，使其在红色背景上更清晰
-              newCueText.setSpan(
-                  new ForegroundColorSpan(HIGHLIGHT_TEXT_COLOR),
-                  start,
-                  end,
-                  Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                  
-              // 添加粗体样式
-              newCueText.setSpan(
-                  new StyleSpan(android.graphics.Typeface.BOLD),
-                  start,
-                  end,
-                  Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                  
-              // 找到匹配后可以停止循环
-              break;
+              // 计算当前单词位置与目标位置的距离
+              int distance = Math.abs(start - highlightWordPosition);
+              
+              // 如果这个单词更接近目标位置，更新最佳匹配
+              if (distance < bestMatchDistance) {
+                  bestMatchDistance = distance;
+                  bestMatchIndex = i;
+              }
+              
+              // 如果发现完全匹配的位置，立即使用它
+              if (start == highlightWordPosition) {
+                  break;
+              }
           }
+      }
+      
+      // 高亮最佳匹配的单词
+      if (bestMatchIndex >= 0) {
+          int start = wordStartPositions.get(bestMatchIndex);
+          int end = wordEndPositions.get(bestMatchIndex);
+          String matchedWord = wordList.get(bestMatchIndex);
+          
+          Log.d(TAG, "高亮单词: '" + matchedWord + "' 位置: " + start + "-" + end);
+          
+          // 添加背景色高亮
+          int highlightColor = HIGHLIGHT_COLOR;
+          highlightColor = (highlightColor & 0x00FFFFFF) | (HIGHLIGHT_ALPHA << 24); // 设置透明度
+          newCueText.setSpan(
+              new BackgroundColorSpan(highlightColor),
+              start,
+              end,
+              Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+              
+          // 设置文字颜色为白色，使其在红色背景上更清晰
+          newCueText.setSpan(
+              new ForegroundColorSpan(HIGHLIGHT_TEXT_COLOR),
+              start,
+              end,
+              Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+              
+          // 添加粗体样式
+          newCueText.setSpan(
+              new StyleSpan(android.graphics.Typeface.BOLD),
+              start,
+              end,
+              Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+      } else {
+          Log.d(TAG, "未找到匹配的单词: '" + highlightWord + "'");
       }
       
       cueText = newCueText;

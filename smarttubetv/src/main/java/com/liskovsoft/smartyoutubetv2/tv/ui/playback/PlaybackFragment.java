@@ -1631,4 +1631,9 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     public SubtitleManager getSubtitleManager() {
         return mSubtitleManager;
     }
+
+    @Override
+    public boolean isControlsVisible() {
+        return isControlsOverlayVisible();
+    }
 }

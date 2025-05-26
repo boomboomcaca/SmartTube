@@ -41,12 +41,36 @@ public class PlayerKeyTranslator extends GlobalKeyTranslator {
     private final Runnable volumeUpAction = () -> volumeUp(true);
     private final Runnable volumeDownAction = () -> volumeUp(false);
     private final Runnable leftKeyAction = () -> {
-        // 检查是否有字幕并进入选词模式
-        checkAndEnterWordSelectionMode();
+        // 检查是否已经在选词模式，如果是，不需要再次进入选词模式
+        PlaybackPresenter playbackPresenter = getPlaybackPresenter();
+        if (playbackPresenter != null && playbackPresenter.getView() != null) {
+            SubtitleManager subtitleManager = playbackPresenter.getView().getSubtitleManager();
+            if (subtitleManager != null) {
+                SubtitleWordSelectionController controller = subtitleManager.getWordSelectionController();
+                if (controller != null) {
+                    // 如果没有在选词模式且有字幕，则进入选词模式
+                    if (!controller.isInWordSelectionMode() && controller.hasSubtitleText()) {
+                        controller.enterWordSelectionMode();
+                    }
+                }
+            }
+        }
     };
     private final Runnable rightKeyAction = () -> {
-        // 检查是否有字幕并进入选词模式
-        checkAndEnterWordSelectionMode();
+        // 检查是否已经在选词模式，如果是，不需要再次进入选词模式
+        PlaybackPresenter playbackPresenter = getPlaybackPresenter();
+        if (playbackPresenter != null && playbackPresenter.getView() != null) {
+            SubtitleManager subtitleManager = playbackPresenter.getView().getSubtitleManager();
+            if (subtitleManager != null) {
+                SubtitleWordSelectionController controller = subtitleManager.getWordSelectionController();
+                if (controller != null) {
+                    // 如果没有在选词模式且有字幕，则进入选词模式
+                    if (!controller.isInWordSelectionMode() && controller.hasSubtitleText()) {
+                        controller.enterWordSelectionMode();
+                    }
+                }
+            }
+        }
     };
     
     private boolean mIsWordSelectionModeEnabled = false;

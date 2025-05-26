@@ -608,6 +608,14 @@ public class EmbedPlayerView extends PlayerView implements PlaybackView {
 
     @Override
     public SubtitleManager getSubtitleManager() {
-        return null; // 嵌入式播放器不支持字幕选词功能
+        // 嵌入式播放器不支持字幕选词功能
+        return null;
+    }
+
+    @Override
+    public boolean isControlsVisible() {
+        // 对于嵌入式播放器，可以根据控制栏的实际实现来判断
+        // 这里假设控制栏总是可见的
+        return true;
     }
 }

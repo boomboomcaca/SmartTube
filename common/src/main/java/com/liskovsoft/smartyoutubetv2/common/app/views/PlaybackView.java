@@ -11,4 +11,9 @@ public interface PlaybackView extends PlayerManager {
      * 获取字幕管理器
      */
     SubtitleManager getSubtitleManager();
+    
+    /**
+     * 检查控制栏是否可见
+     */
+    boolean isControlsVisible();
 }

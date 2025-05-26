@@ -11,6 +11,7 @@ import androidx.leanback.widget.VerticalGridView;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleWordSelectionController;
 import com.liskovsoft.smartyoutubetv2.common.misc.PlayerKeyTranslator;
 import com.liskovsoft.smartyoutubetv2.tv.ui.playback.PlaybackActivity;
 import com.liskovsoft.smartyoutubetv2.tv.ui.playback.mod.surface.SurfacePlaybackFragment;
@@ -43,11 +44,6 @@ public class EventsOverridePlaybackFragment extends SurfacePlaybackFragment {
     }
 
     boolean onInterceptInputEvent(InputEvent event) {
-        // 首先检查是否在选词模式下，如果是则将按键事件交给选词控制器处理
-        if (event instanceof KeyEvent && mKeyTranslator != null && mKeyTranslator.handleSubtitleWordSelectionKeyEvent((KeyEvent) event)) {
-            return true;
-        }
-        
         final boolean controlsHidden = !isControlsOverlayVisible();
         //if (DEBUG) Log.v(TAG, "onInterceptInputEvent hidden " + controlsHidden + " " + event);
         boolean consumeEvent = false;
@@ -57,6 +53,20 @@ public class EventsOverridePlaybackFragment extends SurfacePlaybackFragment {
         if (event instanceof KeyEvent) {
             keyCode = ((KeyEvent) event).getKeyCode();
             keyAction = ((KeyEvent) event).getAction();
+            
+            // 当工具栏显示时，对于上下左右键，不拦截事件，恢复默认功能
+            if (!controlsHidden && (keyCode == KeyEvent.KEYCODE_DPAD_UP || 
+                                    keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                                    keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                                    keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                return false;
+            }
+            
+            // 只有当工具栏隐藏时，才检查是否在选词模式下
+            if (controlsHidden && event instanceof KeyEvent && mKeyTranslator != null && mKeyTranslator.handleSubtitleWordSelectionKeyEvent((KeyEvent) event)) {
+                return true;
+            }
+            
             if (getInputEventHandler() != null) {
                 // VideoPlayerGlue handler
                 consumeEvent = getInputEventHandler().onKey(getView(), keyCode, (KeyEvent) event);
@@ -124,6 +134,18 @@ public class EventsOverridePlaybackFragment extends SurfacePlaybackFragment {
     private boolean isInSeek() {
         Object mInSeek = Helpers.getField(this, "mInSeek");
         return mInSeek != null && (boolean) mInSeek;
+    }
+
+    /**
+     * 检查是否处于选词模式
+     */
+    private boolean isInWordSelectionMode() {
+        SubtitleManager subtitleManager = getSubtitleManager();
+        if (subtitleManager != null) {
+            SubtitleWordSelectionController controller = subtitleManager.getWordSelectionController();
+            return controller != null && controller.isInWordSelectionMode();
+        }
+        return false;
     }
 
     /**
