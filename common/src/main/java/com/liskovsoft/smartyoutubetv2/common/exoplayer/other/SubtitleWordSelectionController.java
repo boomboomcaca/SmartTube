@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Color;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.FrameLayout;
 import androidx.core.content.ContextCompat;
@@ -201,16 +202,16 @@ public class SubtitleWordSelectionController {
                 
             case KeyEvent.KEYCODE_DPAD_UP:
                 if (mIsShowingDefinition) {
-                    // 向上滚动
-                    scrollDefinition(-SCROLL_STEP);
+                    // 向上翻页滚动
+                    scrollDefinitionByPage(-1);
                     return true;
                 }
                 return false;
                 
             case KeyEvent.KEYCODE_DPAD_DOWN:
                 if (mIsShowingDefinition) {
-                    // 向下滚动
-                    scrollDefinition(SCROLL_STEP);
+                    // 向下翻页滚动
+                    scrollDefinitionByPage(1);
                     return true;
                 }
                 return false;
@@ -717,7 +718,7 @@ public class SubtitleWordSelectionController {
         String currentWord = mWords[mCurrentWordIndex];
         
         // 显示覆盖层和加载提示
-        showDefinitionOverlay(currentWord + "\n\n正在查询中...\n请稍候");
+        showDefinitionOverlay("正在查询中...\n请稍候");
         
         // 创建一个新线程来执行网络请求，避免阻塞主线程
         new Thread(() -> {
@@ -738,7 +739,7 @@ public class SubtitleWordSelectionController {
                 if (mContext instanceof Activity) {
                     ((Activity) mContext).runOnUiThread(() -> {
                         if (mTextView != null && mIsWordSelectionMode) {
-                            showDefinitionOverlay(currentWord + "\n\n主API查询失败，正在使用备用API...");
+                            showDefinitionOverlay("正在使用备用API查询...");
                         }
                     });
                 }
@@ -764,8 +765,8 @@ public class SubtitleWordSelectionController {
                 ((Activity) mContext).runOnUiThread(() -> {
                     // 检查是否仍然处于单词选择模式
                     if (mTextView != null && mIsWordSelectionMode) {
-                        // 显示单词和解释
-                        showDefinitionOverlay(currentWord + "\n\n" + finalDefinition);
+                        // 只显示解释内容，不再重复添加单词名称
+                        showDefinitionOverlay(finalDefinition);
                     }
                 });
             }
@@ -792,28 +793,40 @@ public class SubtitleWordSelectionController {
                     for (int i = 0; i < lines.length; i++) {
                         String line = lines[i];
                         
-                        // 处理单词标题【单词】
+                        // 统一处理所有标题【标题】样式
                         if (line.startsWith("【") && line.endsWith("】")) {
-                            SpannableString ss = new SpannableString(line);
-                            ss.setSpan(new RelativeSizeSpan(1.5f), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            ss.setSpan(new ForegroundColorSpan(Color.YELLOW), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            ss.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            builder.append(ss);
+                            // 判断是单词标题还是子标题
+                            if (i == 0 && line.contains("]") && (line.contains("音标") || line.contains("美") || line.contains("英"))) {
+                                // 处理第一行包含单词和音标的情况
+                                // 将单词名称和音标分开处理
+                                int bracketEnd = line.indexOf("】") + 1;
+                                
+                                // 处理单词名称部分（使用橙色和粗体，与标题一致）
+                                SpannableString wordPart = new SpannableString(line.substring(0, bracketEnd));
+                                wordPart.setSpan(new ForegroundColorSpan(Color.rgb(255, 165, 0)), 0, bracketEnd, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                wordPart.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, bracketEnd, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                builder.append(wordPart);
+                                
+                                // 处理音标部分（保持青色）
+                                if (bracketEnd < line.length()) {
+                                    SpannableString phoneticPart = new SpannableString(line.substring(bracketEnd));
+                                    phoneticPart.setSpan(new ForegroundColorSpan(Color.CYAN), 0, phoneticPart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                    builder.append(phoneticPart);
+                                }
+                            } else {
+                                // 处理所有子标题（基本释义、网络释义、例句等）统一样式，只保留颜色和粗体，不改变大小
+                                SpannableString ss = new SpannableString(line);
+                                ss.setSpan(new ForegroundColorSpan(Color.rgb(255, 165, 0)), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                ss.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                builder.append(ss);
+                            }
                         }
-                        // 处理音标 [音标]
+                        // 处理单独的音标行 [音标]（不应该再有这种情况，但保留兼容）
                         else if (line.contains("[") && line.contains("]") && 
                                 (line.contains("音标") || line.contains("美") || line.contains("英"))) {
                             SpannableString ss = new SpannableString(line);
                             ss.setSpan(new ForegroundColorSpan(Color.CYAN), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            ss.setSpan(new RelativeSizeSpan(1.1f), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            builder.append(ss);
-                        }
-                        // 处理小标题【网络释义】等
-                        else if (line.startsWith("【") && line.endsWith("】")) {
-                            SpannableString ss = new SpannableString(line);
-                            ss.setSpan(new RelativeSizeSpan(1.2f), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            ss.setSpan(new ForegroundColorSpan(Color.rgb(255, 165, 0)), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            ss.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            // 移除字体大小修改
                             builder.append(ss);
                         }
                         // 处理列表项 •
@@ -841,6 +854,30 @@ public class SubtitleWordSelectionController {
                     }
                     
                     mTextView.setText(builder);
+                    
+                    // 手动触发布局更新，使容器适应内容宽度
+                    mTextView.post(() -> {
+                        // 确保宽度在最小和最大范围内
+                        int contentWidth = mTextView.getLayout() != null ? 
+                                Math.max(mTextView.getLayout().getWidth() + mTextView.getPaddingLeft() + mTextView.getPaddingRight(), 
+                                mTextView.getMinWidth()) : mTextView.getMinWidth();
+                        
+                        // 根据内容调整宽度，并保持高度不变
+                        ViewGroup.LayoutParams params = mSelectionOverlay.getLayoutParams();
+                        if (params instanceof FrameLayout.LayoutParams) {
+                            // 记录旧高度
+                            int oldHeight = params.height;
+                            // 更新宽度
+                            params.width = contentWidth;
+                            // 恢复高度
+                            params.height = oldHeight;
+                            // 应用更新的布局参数
+                            mSelectionOverlay.setLayoutParams(params);
+                            
+                            Log.d(TAG, "动态调整窗口宽度: " + contentWidth);
+                        }
+                    });
+                    
                 } catch (Exception e) {
                     // 如果样式应用失败，退回到普通文本
                     Log.w(TAG, "应用文本样式失败: " + e.getMessage());
@@ -1030,8 +1067,8 @@ public class SubtitleWordSelectionController {
         try {
             StringBuilder definition = new StringBuilder();
             
-            // 添加查询单词
-            definition.append("【").append(originalWord).append("】\n\n");
+            // 添加查询单词和音标在同一行
+            definition.append("【").append(originalWord).append("】 ");
             
             // 提取音标
             boolean hasPhonetic = false;
@@ -1044,7 +1081,7 @@ public class SubtitleWordSelectionController {
                     if (phoneticStart > 0 && phoneticEnd > phoneticStart) {
                         String phonetic = jsonResponse.substring(phoneticStart, phoneticEnd);
                         if (!phonetic.isEmpty()) {
-                            definition.append("音标 [").append(phonetic).append("]\n\n");
+                            definition.append("音标 [").append(phonetic).append("]");
                             hasPhonetic = true;
                         }
                     }
@@ -1060,7 +1097,7 @@ public class SubtitleWordSelectionController {
                     if (usPhoneticStart > 0 && usPhoneticEnd > usPhoneticStart) {
                         String usPhonetic = jsonResponse.substring(usPhoneticStart, usPhoneticEnd);
                         if (!usPhonetic.isEmpty()) {
-                            definition.append("美 [").append(usPhonetic).append("]\n\n");
+                            definition.append("美 [").append(usPhonetic).append("]");
                             hasPhonetic = true;
                         }
                     }
@@ -1076,14 +1113,17 @@ public class SubtitleWordSelectionController {
                     if (ukPhoneticStart > 0 && ukPhoneticEnd > ukPhoneticStart) {
                         String ukPhonetic = jsonResponse.substring(ukPhoneticStart, ukPhoneticEnd);
                         if (!ukPhonetic.isEmpty()) {
-                            definition.append("英 [").append(ukPhonetic).append("]\n\n");
+                            definition.append("英 [").append(ukPhonetic).append("]");
                             hasPhonetic = true;
                         }
                     }
                 }
             }
             
-            // 添加查询单词
+            // 添加换行
+            definition.append("\n\n");
+            
+            // 添加查询单词翻译
             if (jsonResponse.contains("\"translation\"")) {
                 int translationIndex = jsonResponse.indexOf("\"translation\"");
                 int translationStart = jsonResponse.indexOf("[", translationIndex);
@@ -1119,81 +1159,6 @@ public class SubtitleWordSelectionController {
                 }
             }
             
-            // 解析网络释义
-            if (jsonResponse.contains("\"web\"")) {
-                int webIndex = jsonResponse.indexOf("\"web\"");
-                int webStart = jsonResponse.indexOf("[", webIndex);
-                int webEnd = jsonResponse.indexOf("]", webStart);
-                
-                if (webStart > 0 && webEnd > webStart) {
-                    String webJson = jsonResponse.substring(webStart + 1, webEnd);
-                    String[] entries = webJson.split("\\},\\{");
-                    
-                    definition.append("【网络释义】\n");
-                    for (int i = 0; i < Math.min(entries.length, 10); i++) {
-                        String entry = entries[i];
-                        
-                        // 提取词条关键词
-                        int keyIndex = entry.indexOf("\"key\"");
-                        if (keyIndex >= 0) {
-                            int keyStart = entry.indexOf("\"", keyIndex + 5) + 1;
-                            int keyEnd = entry.indexOf("\"", keyStart);
-                            
-                            if (keyStart > 0 && keyEnd > keyStart) {
-                                String key = entry.substring(keyStart, keyEnd);
-                                definition.append("• ").append(key).append(": ");
-                            }
-                        }
-                        
-                        // 提取词条释义
-                        int valueIndex = entry.indexOf("\"value\"");
-                        if (valueIndex >= 0) {
-                            int valueStart = entry.indexOf("[", valueIndex);
-                            int valueEnd = entry.indexOf("]", valueStart);
-                            
-                            if (valueStart > 0 && valueEnd > valueStart) {
-                                String values = entry.substring(valueStart + 1, valueEnd);
-                                values = values.replace("\"", "");
-                                definition.append(values).append("\n");
-                            }
-                        }
-                    }
-                    definition.append("\n");
-                }
-            }
-            
-            // 提取额外网络短语（如果有）
-            if (jsonResponse.contains("\"phrase\"")) {
-                int phraseIndex = jsonResponse.indexOf("\"phrase\"");
-                if (phraseIndex > 0) {
-                    definition.append("【常用短语】\n");
-                    
-                    // 解析短语
-                    try {
-                        int phraseStart = phraseIndex;
-                        int count = 0;
-                        
-                        while (phraseStart > 0 && count < 5) {
-                            int phraseTextStart = jsonResponse.indexOf("\"", phraseStart + 8) + 1;
-                            int phraseTextEnd = jsonResponse.indexOf("\"", phraseTextStart);
-                            
-                            if (phraseTextStart > 0 && phraseTextEnd > phraseTextStart) {
-                                String phrase = jsonResponse.substring(phraseTextStart, phraseTextEnd);
-                                definition.append("• ").append(phrase).append("\n");
-                                count++;
-                            }
-                            
-                            phraseStart = jsonResponse.indexOf("\"phrase\"", phraseTextEnd);
-                            if (phraseStart < 0 || count >= 5) break;
-                        }
-                        
-                        definition.append("\n");
-                    } catch (Exception e) {
-                        Log.w(TAG, "解析短语时出错: " + e.getMessage());
-                    }
-                }
-            }
-            
             return definition.toString();
         } catch (Exception e) {
             Log.e(TAG, "解析备用API响应失败: " + e.getMessage(), e);
@@ -1211,8 +1176,8 @@ public class SubtitleWordSelectionController {
         try {
             StringBuilder definition = new StringBuilder();
             
-            // 添加查询单词
-            definition.append("【").append(originalWord).append("】\n\n");
+            // 添加查询单词和音标在同一行
+            definition.append("【").append(originalWord).append("】 ");
             
             // 提取音标
             boolean hasPhonetic = false;
@@ -1258,13 +1223,11 @@ public class SubtitleWordSelectionController {
             }
             
             // 添加换行
-            if (hasPhonetic) {
-                definition.append("\n\n");
-            }
+            definition.append("\n\n");
             
             // 提取基本释义
             if (jsonResponse.contains("\"ec\"")) {
-                definition.append("基本释义:\n");
+                definition.append("【基本释义】\n");
                 int ecIndex = jsonResponse.indexOf("\"ec\"");
                 int wordIndex = jsonResponse.indexOf("\"word\"", ecIndex);
                 
@@ -1307,141 +1270,6 @@ public class SubtitleWordSelectionController {
                 }
             }
             
-            // 提取网络释义 - 增强显示
-            if (jsonResponse.contains("\"web_trans\"")) {
-                definition.append("【网络释义】\n");
-                
-                int webTransIndex = jsonResponse.indexOf("\"web_trans\"");
-                int webTranslationIndex = jsonResponse.indexOf("\"web-translation\"", webTransIndex);
-                
-                if (webTranslationIndex > 0) {
-                    int entriesIndex = jsonResponse.indexOf("\"@entries\"", webTranslationIndex);
-                    if (entriesIndex > 0) {
-                        int entriesStart = jsonResponse.indexOf("[", entriesIndex);
-                        int entriesEnd = findMatchingBracket(jsonResponse, entriesStart);
-                        
-                        if (entriesStart > 0 && entriesEnd > entriesStart) {
-                            String entriesJson = jsonResponse.substring(entriesStart, entriesEnd + 1);
-                            
-                            // 解析网络释义
-                            int pos = 0;
-                            int count = 0;
-                            while (pos < entriesJson.length() && count < 15) { // 增加显示数量至15个
-                                int valueIndex = entriesJson.indexOf("\"value\"", pos);
-                                if (valueIndex < 0) break;
-                                
-                                int valueStart = entriesJson.indexOf("\"", valueIndex + 8) + 1;
-                                int valueEnd = entriesJson.indexOf("\"", valueStart);
-                                
-                                if (valueStart > 0 && valueEnd > valueStart) {
-                                    String webMeaning = entriesJson.substring(valueStart, valueEnd);
-                                    definition.append("• ").append(webMeaning).append("\n");
-                                    count++;
-                                }
-                                
-                                pos = valueEnd + 1;
-                            }
-                            definition.append("\n");
-                        }
-                    }
-                }
-                
-                // 提取网络短语
-                if (jsonResponse.contains("\"webPhrase\"")) {
-                    definition.append("【网络短语】\n");
-                    int webPhraseIndex = jsonResponse.indexOf("\"webPhrase\"");
-                    int webPhrasesIndex = jsonResponse.indexOf("\"phrases\"", webPhraseIndex);
-                    
-                    if (webPhrasesIndex > 0) {
-                        int phrasesStart = jsonResponse.indexOf("[", webPhrasesIndex);
-                        int phrasesEnd = findMatchingBracket(jsonResponse, phrasesStart);
-                        
-                        if (phrasesStart > 0 && phrasesEnd > phrasesStart) {
-                            String phrasesJson = jsonResponse.substring(phrasesStart, phrasesEnd + 1);
-                            
-                            // 解析网络短语
-                            int pos = 0;
-                            int count = 0;
-                            while (pos < phrasesJson.length() && count < 10) {
-                                int phraseIndex = phrasesJson.indexOf("\"phrase\"", pos);
-                                if (phraseIndex < 0) break;
-                                
-                                int phraseStart = phrasesJson.indexOf("\"", phraseIndex + 9) + 1;
-                                int phraseEnd = phrasesJson.indexOf("\"", phraseStart);
-                                
-                                if (phraseStart > 0 && phraseEnd > phraseStart) {
-                                    String phrase = phrasesJson.substring(phraseStart, phraseEnd);
-                                    
-                                    // 提取翻译
-                                    int transIndex = phrasesJson.indexOf("\"trans\"", phraseEnd);
-                                    if (transIndex > 0 && transIndex < phrasesJson.indexOf("\"phrase\"", phraseEnd + 1)) {
-                                        int transStart = phrasesJson.indexOf("\"", transIndex + 8) + 1;
-                                        int transEnd = phrasesJson.indexOf("\"", transStart);
-                                        
-                                        if (transStart > 0 && transEnd > transStart) {
-                                            String trans = phrasesJson.substring(transStart, transEnd);
-                                            definition.append("• ").append(phrase).append(": ").append(trans).append("\n");
-                                            count++;
-                                        }
-                                    }
-                                }
-                                
-                                // 移动到下一个短语
-                                pos = phrasesJson.indexOf("\"phrase\"", phraseEnd + 1);
-                                if (pos < 0) break;
-                            }
-                            definition.append("\n");
-                        }
-                    }
-                }
-            }
-            
-            // 提取例句
-            if (jsonResponse.contains("\"blng_sents_part\"")) {
-                definition.append("【例句】\n");
-                
-                int sentencesIndex = jsonResponse.indexOf("\"blng_sents_part\"");
-                int sentencesArrayIndex = jsonResponse.indexOf("\"sentence-pair\"", sentencesIndex);
-                
-                if (sentencesArrayIndex > 0) {
-                    int sentArrayStart = jsonResponse.indexOf("[", sentencesArrayIndex);
-                    int sentArrayEnd = findMatchingBracket(jsonResponse, sentArrayStart);
-                    
-                    if (sentArrayStart > 0 && sentArrayEnd > sentArrayStart) {
-                        String sentencesJson = jsonResponse.substring(sentArrayStart, sentArrayEnd + 1);
-                        
-                        // 解析例句
-                        int pos = 0;
-                        int count = 0;
-                        while (pos < sentencesJson.length() && count < 3) { // 最多显示3个例句
-                            int sentenceIndex = sentencesJson.indexOf("\"sentence\"", pos);
-                            if (sentenceIndex < 0) break;
-                            
-                            int sentenceStart = sentencesJson.indexOf("\"", sentenceIndex + 11) + 1;
-                            int sentenceEnd = sentencesJson.indexOf("\"", sentenceStart);
-                            
-                            int sentenceTransIndex = sentencesJson.indexOf("\"sentence-translation\"", sentenceEnd);
-                            if (sentenceTransIndex < 0) break;
-                            
-                            int transStart = sentencesJson.indexOf("\"", sentenceTransIndex + 23) + 1;
-                            int transEnd = sentencesJson.indexOf("\"", transStart);
-                            
-                            if (sentenceStart > 0 && sentenceEnd > sentenceStart && 
-                                transStart > 0 && transEnd > transStart) {
-                                String sentence = sentencesJson.substring(sentenceStart, sentenceEnd);
-                                String translation = sentencesJson.substring(transStart, transEnd);
-                                
-                                definition.append(count + 1).append(". ").append(sentence).append("\n");
-                                definition.append("   ").append(translation).append("\n\n");
-                                count++;
-                            }
-                            
-                            pos = transEnd + 1;
-                        }
-                    }
-                }
-            }
-            
             // 如果没有找到任何释义
             if (definition.length() <= originalWord.length() + 5) { // 只有单词标题
                 return "未找到 \"" + originalWord + "\" 的释义";
@@ -1477,14 +1305,14 @@ public class SubtitleWordSelectionController {
     private void createSelectionOverlay() {
         // 创建滚动视图容器
         mSelectionOverlay = new FrameLayout(mContext);
-        mSelectionOverlay.setBackgroundColor(Color.argb(220, 0, 0, 0));
+        mSelectionOverlay.setBackgroundColor(Color.argb(128, 0, 0, 0));  // 背景透明度改为50% (128/255)
         
         // 创建文本视图
         mTextView = new TextView(mContext);
         mTextView.setTextColor(Color.WHITE);
         mTextView.setBackgroundColor(Color.TRANSPARENT); // 背景由容器设置
-        mTextView.setTextSize(18);
-        mTextView.setPadding(50, 30, 50, 30);
+        mTextView.setTextSize(22);  // 字体大小放大20%，从18增加到22
+        mTextView.setPadding(30, 15, 30, 15);  // 减小内边距
         
         // 设置多行显示和自动换行
         mTextView.setSingleLine(false);
@@ -1493,10 +1321,10 @@ public class SubtitleWordSelectionController {
         mTextView.setHorizontallyScrolling(false);
         
         // 设置文本对齐方式
-        mTextView.setGravity(android.view.Gravity.LEFT);
+        mTextView.setGravity(android.view.Gravity.CENTER);  // 将文本对齐方式改为居中
         
-        // 设置行距，使文本更易阅读
-        mTextView.setLineSpacing(0, 1.2f);
+        // 设置所有行的行距为0.9
+        mTextView.setLineSpacing(0, 0.9f);
         
         // 将文本视图添加到滚动容器中
         mSelectionOverlay.addView(mTextView, new FrameLayout.LayoutParams(
@@ -1505,19 +1333,34 @@ public class SubtitleWordSelectionController {
         
         // 设置滚动容器的布局参数
         FrameLayout.LayoutParams containerParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,  // 宽度改为WRAP_CONTENT，根据内容自动调整
                 FrameLayout.LayoutParams.WRAP_CONTENT
         );
         containerParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL; // 放置在顶部中央
-        containerParams.topMargin = 40; // 顶部距离为40px，给顶部预留一些空间
-        containerParams.width = (int) (mContext.getResources().getDisplayMetrics().widthPixels * 0.75f); // 设置宽度为屏幕宽度的75%
-        containerParams.height = (int) (mContext.getResources().getDisplayMetrics().heightPixels * 0.5f); // 设置高度为屏幕高度的50%
+        containerParams.topMargin = 0;  // 顶部距离为0，置顶显示
+        
+        // 计算屏幕宽度
+        int screenWidth = mContext.getResources().getDisplayMetrics().widthPixels;
+        
+        // 设置最小宽度和最大宽度限制
+        int minWidth = (int)(screenWidth * 0.5f);  // 最小为屏幕宽度的50%
+        int maxWidth = (int)(screenWidth * 0.9f);  // 最大为屏幕宽度的90%
+        
+        // 设置宽度约束
+        mTextView.setMinWidth(minWidth);
+        mTextView.setMaxWidth(maxWidth);
+        
+        // 计算9行文本的高度（考虑到字体大小增加到22）
+        int lineHeight = (int) (mTextView.getTextSize() * 0.9f); // 估计行高（考虑行距0.9）
+        int paddingVertical = mTextView.getPaddingTop() + mTextView.getPaddingBottom();
+        containerParams.height = lineHeight * 9 + paddingVertical; // 设置高度为9行文本高度
+        
         mSelectionOverlay.setLayoutParams(containerParams);
         
         // 添加边框和圆角
         try {
             GradientDrawable border = new GradientDrawable();
-            border.setColor(Color.argb(220, 0, 0, 0)); // 背景色
+            border.setColor(Color.argb(128, 0, 0, 0));  // 背景透明度改为50%
             border.setCornerRadius(20); // 圆角半径
             border.setStroke(2, Color.argb(200, 100, 100, 100)); // 边框宽度和颜色
             mSelectionOverlay.setBackground(border);
@@ -1645,6 +1488,9 @@ public class SubtitleWordSelectionController {
             
             // 应用滚动
             mTextView.scrollTo(0, mScrollPosition);
+            
+            // 确保行距设置不变
+            mTextView.setLineSpacing(0, 0.9f);
         }
     }
     
@@ -1816,5 +1662,55 @@ public class SubtitleWordSelectionController {
         }
         
         return wordList;
+    }
+    
+    /**
+     * 按页滚动解释窗口
+     * @param direction 滚动方向，1表示向下翻页，-1表示向上翻页
+     */
+    private void scrollDefinitionByPage(int direction) {
+        if (mTextView != null) {
+            // 计算一页的高度（视图高度减去内边距）
+            int viewHeight = mTextView.getHeight() - mTextView.getPaddingTop() - mTextView.getPaddingBottom();
+            
+            // 计算实际行高
+            float actualLineHeight = mTextView.getLineHeight();
+            
+            // 计算滚动量（以完整行为单位，确保不会截断行）
+            int visibleLines = (int)(viewHeight / actualLineHeight);
+            // 减少重叠行数，确保新内容可见（从50%减少到30%）
+            int scrollLines = Math.max(1, (int)(visibleLines * 0.7));
+            // 计算精确的滚动像素
+            int scrollAmount = (int)(scrollLines * actualLineHeight) * direction;
+            
+            // 更新滚动位置
+            mScrollPosition += scrollAmount;
+            
+            // 确保不滚动超出范围
+            if (mScrollPosition < 0) {
+                mScrollPosition = 0;
+            }
+            
+            // 计算文本总高度
+            int textHeight = mTextView.getLineCount() * (int)actualLineHeight;
+            
+            // 确保不滚动超出底部
+            int maxScroll = Math.max(0, textHeight - viewHeight);
+            if (mScrollPosition > maxScroll) {
+                mScrollPosition = maxScroll;
+            }
+            
+            // 应用滚动
+            mTextView.scrollTo(0, mScrollPosition);
+            
+            // 确保行距设置不变
+            mTextView.setLineSpacing(0, 0.9f);
+            
+            // 日志输出滚动状态，方便调试
+            Log.d(TAG, "滚动信息 - 当前位置:" + mScrollPosition + 
+                  ", 可见行数:" + visibleLines + 
+                  ", 滚动行数:" + scrollLines + 
+                  ", 最大滚动:" + maxScroll);
+        }
     }
 } 
