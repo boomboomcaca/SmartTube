@@ -1067,8 +1067,11 @@ public class SubtitleWordSelectionController {
         try {
             StringBuilder definition = new StringBuilder();
             
+            // 将单词首字母大写
+            String capitalizedWord = capitalizeFirstLetter(originalWord);
+            
             // 添加查询单词和音标在同一行
-            definition.append("【").append(originalWord).append("】 ");
+            definition.append("【").append(capitalizedWord).append("】 ");
             
             // 提取音标
             boolean hasPhonetic = false;
@@ -1123,7 +1126,7 @@ public class SubtitleWordSelectionController {
             // 添加换行
             definition.append("\n\n");
             
-            // 添加查询单词翻译
+            // 添加查询单词
             if (jsonResponse.contains("\"translation\"")) {
                 int translationIndex = jsonResponse.indexOf("\"translation\"");
                 int translationStart = jsonResponse.indexOf("[", translationIndex);
@@ -1176,8 +1179,11 @@ public class SubtitleWordSelectionController {
         try {
             StringBuilder definition = new StringBuilder();
             
+            // 将单词首字母大写
+            String capitalizedWord = capitalizeFirstLetter(originalWord);
+            
             // 添加查询单词和音标在同一行
-            definition.append("【").append(originalWord).append("】 ");
+            definition.append("【").append(capitalizedWord).append("】 ");
             
             // 提取音标
             boolean hasPhonetic = false;
@@ -1271,8 +1277,8 @@ public class SubtitleWordSelectionController {
             }
             
             // 如果没有找到任何释义
-            if (definition.length() <= originalWord.length() + 5) { // 只有单词标题
-                return "未找到 \"" + originalWord + "\" 的释义";
+            if (definition.length() <= capitalizedWord.length() + 5) { // 只有单词标题
+                return "未找到 \"" + capitalizedWord + "\" 的释义";
             }
             
             return definition.toString();
@@ -1350,10 +1356,10 @@ public class SubtitleWordSelectionController {
         mTextView.setMinWidth(minWidth);
         mTextView.setMaxWidth(maxWidth);
         
-        // 计算9行文本的高度（考虑到字体大小增加到22）
+        // 计算12行文本的高度（考虑到字体大小增加到22）
         int lineHeight = (int) (mTextView.getTextSize() * 0.9f); // 估计行高（考虑行距0.9）
         int paddingVertical = mTextView.getPaddingTop() + mTextView.getPaddingBottom();
-        containerParams.height = lineHeight * 9 + paddingVertical; // 设置高度为9行文本高度
+        containerParams.height = lineHeight * 12 + paddingVertical; // 设置高度为12行文本高度（从9行增加到12行）
         
         mSelectionOverlay.setLayoutParams(containerParams);
         
@@ -1670,34 +1676,125 @@ public class SubtitleWordSelectionController {
      */
     private void scrollDefinitionByPage(int direction) {
         if (mTextView != null) {
-            // 计算一页的高度（视图高度减去内边距）
-            int viewHeight = mTextView.getHeight() - mTextView.getPaddingTop() - mTextView.getPaddingBottom();
-            
             // 计算实际行高
             float actualLineHeight = mTextView.getLineHeight();
             
-            // 计算滚动量（以完整行为单位，确保不会截断行）
-            int visibleLines = (int)(viewHeight / actualLineHeight);
-            // 减少重叠行数，确保新内容可见（从50%减少到30%）
-            int scrollLines = Math.max(1, (int)(visibleLines * 0.7));
-            // 计算精确的滚动像素
-            int scrollAmount = (int)(scrollLines * actualLineHeight) * direction;
+            // 计算一页的高度（视图高度减去内边距）
+            int viewHeight = mTextView.getHeight() - mTextView.getPaddingTop() - mTextView.getPaddingBottom();
             
-            // 更新滚动位置
-            mScrollPosition += scrollAmount;
+            // 计算文本总行数
+            int totalLines = mTextView.getLineCount();
+            
+            // 计算当前可见的第一行和最后一行
+            int firstVisibleLine = 0;
+            int lastVisibleLine = 0;
+            
+            try {
+                // 获取TextView的Layout对象
+                android.text.Layout layout = mTextView.getLayout();
+                if (layout != null) {
+                    // 计算当前滚动位置对应的行号
+                    firstVisibleLine = layout.getLineForVertical(mScrollPosition);
+                    lastVisibleLine = layout.getLineForVertical(mScrollPosition + viewHeight);
+                    
+                    // 确保最后一行完全可见
+                    if (mScrollPosition + viewHeight < layout.getLineBottom(lastVisibleLine)) {
+                        lastVisibleLine--;
+                    }
+                    
+                    Log.d(TAG, "当前可见行: " + firstVisibleLine + " - " + lastVisibleLine);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "计算可见行出错: " + e.getMessage());
+            }
+            
+            // 如果方向向下，则从当前最后可见行的下一行开始滚动
+            // 如果方向向上，则从当前第一可见行的上一行结束滚动
+            int targetLine;
+            if (direction > 0) {
+                // 向下滚动，目标是当前最后可见行之后的一页
+                targetLine = Math.min(lastVisibleLine + 1, totalLines - 1);
+                
+                // 计算要显示的行数，保留一点重叠以提供连续性
+                int linesToShow = Math.max(1, (int)(viewHeight / actualLineHeight * 0.8));
+                targetLine = Math.min(targetLine + linesToShow, totalLines - 1);
+                
+                // 滚动到目标行的顶部
+                try {
+                    if (mTextView.getLayout() != null) {
+                        mScrollPosition = mTextView.getLayout().getLineTop(targetLine);
+                        
+                        // 确保最后一行完全可见
+                        if (targetLine == totalLines - 1) {
+                            int lineBottom = mTextView.getLayout().getLineBottom(targetLine);
+                            if (mScrollPosition + viewHeight < lineBottom) {
+                                // 调整滚动位置确保最后一行完全可见
+                                mScrollPosition = lineBottom - viewHeight;
+                                
+                                // 添加额外边距确保完整显示最后一行
+                                mScrollPosition += mTextView.getPaddingBottom();
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    // 回退到传统计算
+                    mScrollPosition += viewHeight;
+                }
+            } else {
+                // 向上滚动，目标是当前第一可见行之前的一页
+                targetLine = Math.max(firstVisibleLine - 1, 0);
+                
+                // 计算要显示的行数，保留一点重叠以提供连续性
+                int linesToShow = Math.max(1, (int)(viewHeight / actualLineHeight * 0.8));
+                targetLine = Math.max(targetLine - linesToShow, 0);
+                
+                // 滚动到目标行的顶部
+                try {
+                    if (mTextView.getLayout() != null) {
+                        mScrollPosition = mTextView.getLayout().getLineTop(targetLine);
+                    }
+                } catch (Exception e) {
+                    // 回退到传统计算
+                    mScrollPosition -= viewHeight;
+                }
+            }
             
             // 确保不滚动超出范围
             if (mScrollPosition < 0) {
                 mScrollPosition = 0;
             }
             
-            // 计算文本总高度
-            int textHeight = mTextView.getLineCount() * (int)actualLineHeight;
+            // 计算文本总高度和最大滚动位置
+            int textHeight = totalLines * (int)actualLineHeight;
+            // 修改：为底部添加额外的内边距，确保最后一行完整显示
+            int extraBottomPadding = (int)(actualLineHeight * 0.3); // 添加30%行高的额外空间
+            int maxScroll = Math.max(0, textHeight - viewHeight + extraBottomPadding);
             
             // 确保不滚动超出底部
-            int maxScroll = Math.max(0, textHeight - viewHeight);
             if (mScrollPosition > maxScroll) {
                 mScrollPosition = maxScroll;
+            }
+            
+            // 应用滚动并确保是整行的倍数
+            try {
+                if (mTextView.getLayout() != null) {
+                    // 找到最接近当前滚动位置的行的顶部位置
+                    int line = mTextView.getLayout().getLineForVertical(mScrollPosition);
+                    // 调整到行的起始位置
+                    mScrollPosition = mTextView.getLayout().getLineTop(line);
+                    
+                    // 特殊处理最后几行的显示，确保完全可见
+                    if (line >= totalLines - 3) {
+                        // 如果是最后几行，检查是否需要调整以确保最后一行完全可见
+                        int lastLineBottom = mTextView.getLayout().getLineBottom(totalLines - 1);
+                        if (mScrollPosition + viewHeight < lastLineBottom) {
+                            // 调整位置确保最后一行完全可见
+                            mScrollPosition = lastLineBottom - viewHeight;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "对齐到行起始位置失败: " + e.getMessage());
             }
             
             // 应用滚动
@@ -1708,9 +1805,22 @@ public class SubtitleWordSelectionController {
             
             // 日志输出滚动状态，方便调试
             Log.d(TAG, "滚动信息 - 当前位置:" + mScrollPosition + 
-                  ", 可见行数:" + visibleLines + 
-                  ", 滚动行数:" + scrollLines + 
+                  ", 可见行数:" + (lastVisibleLine - firstVisibleLine + 1) + 
+                  ", 滚动行数:" + (direction > 0 ? targetLine - lastVisibleLine : firstVisibleLine - targetLine) + 
                   ", 最大滚动:" + maxScroll);
         }
+    }
+    
+    /**
+     * 将字符串的首字母转为大写
+     * @param word 要处理的字符串
+     * @return 首字母大写的字符串
+     */
+    private String capitalizeFirstLetter(String word) {
+        if (word == null || word.isEmpty()) {
+            return word;
+        }
+        
+        return word.substring(0, 1).toUpperCase() + word.substring(1);
     }
 } 
