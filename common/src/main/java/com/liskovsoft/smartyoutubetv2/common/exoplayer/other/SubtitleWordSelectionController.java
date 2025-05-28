@@ -96,8 +96,35 @@ public class SubtitleWordSelectionController {
         // 分割当前字幕文本为单词
         splitSubtitleIntoWords();
         
+        // 确保有单词可选
+        if (mWords.length == 0) {
+            Log.d(TAG, "没有找到可选择的单词，尝试再次分析字幕");
+            // 再次尝试提取字幕文本
+            List<Cue> currentCues = mSubtitleView.getCues();
+            if (currentCues != null && !currentCues.isEmpty()) {
+                setCurrentSubtitleText(currentCues);
+                // 再次尝试分割单词
+                splitSubtitleIntoWords();
+            }
+            
+            // 如果仍然没有单词，则显示消息并退出选词模式
+            if (mWords.length == 0) {
+                MessageHelpers.showMessage(mContext, R.string.no_subtitle_available);
+                mIsWordSelectionMode = false;
+                return;
+            }
+        }
+        
+        // 确保当前选中的单词索引有效
+        if (mCurrentWordIndex >= mWords.length) {
+            mCurrentWordIndex = 0;
+        }
+        
         // 高亮显示第一个单词（但不显示覆盖层）
         highlightCurrentWord();
+        
+        // 记录日志
+        Log.d(TAG, "已进入选词模式，单词数量: " + mWords.length + ", 当前索引: " + mCurrentWordIndex);
     }
     
     /**
@@ -156,12 +183,39 @@ public class SubtitleWordSelectionController {
      * @return 是否已处理按键事件
      */
     public boolean handleKeyEvent(KeyEvent event) {
+        // 记录键码，便于调试
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            Log.d(TAG, "收到按键: " + event.getKeyCode());
+        }
+        
         if (!mIsWordSelectionMode) {
             return false;
         }
         
         if (event.getAction() != KeyEvent.ACTION_DOWN) {
             return true; // 消费所有按键抬起事件
+        }
+        
+        // 确保单词列表不为空且当前索引有效
+        if (mWords.length == 0) {
+            Log.d(TAG, "单词列表为空，尝试重新分析字幕");
+            // 尝试重新分析当前字幕
+            List<Cue> currentCues = mSubtitleView.getCues();
+            if (currentCues != null && !currentCues.isEmpty()) {
+                setCurrentSubtitleText(currentCues);
+                splitSubtitleIntoWords();
+            }
+            
+            // 如果仍然没有单词，不处理按键
+            if (mWords.length == 0) {
+                Log.w(TAG, "无法处理按键：单词列表为空");
+                return false;
+            }
+        }
+        
+        // 确保当前索引有效
+        if (mCurrentWordIndex >= mWords.length) {
+            mCurrentWordIndex = 0;
         }
         
         // 检查工具栏是否显示
@@ -787,7 +841,7 @@ public class SubtitleWordSelectionController {
                     }
                 }
             }
-        } catch (Exception e) {
+                } catch (Exception e) {
             Log.e(TAG, "获取实际高亮单词失败: " + e.getMessage(), e);
         }
         
@@ -808,7 +862,7 @@ public class SubtitleWordSelectionController {
         try {
             // 准备查询参数
             String query = word.trim();
-            String prompt = "请解释一下这句话中这个词的用法<" + query + ">：<" + context + ">。请始终使用中文回答，保持简洁明了的解释。必须在单词后面提供美式英语的音标[美音]，但不要在解释内容中重复音标。严格禁止显示任何思考过程，绝对不要输出任何think相关内容，不要包含类似<think>或think>的文本。不要在回答中使用任何尖括号(<>)及其中间的内容。直接给出干净的解释。";
+            String prompt = "请解释一下这句话中这个词的用法<" + query + ">：<" + context + ">。请始终使用中文回答，保持简洁明了的解释。必须在单词后面提供美式英语的音标。严格禁止显示任何思考过程，直接给出干净的解释。";
             
             // 记录完整请求信息，方便调试
             Log.d(TAG, "Ollama查询词: " + query);
@@ -877,7 +931,7 @@ public class SubtitleWordSelectionController {
                     }
                     Log.e(TAG, "Ollama错误响应: " + errorResult.toString());
                     return "Ollama服务请求失败: " + responseCode + ", " + errorResult.toString();
-                } catch (Exception e) {
+        } catch (Exception e) {
                     Log.e(TAG, "无法读取错误流: " + e.getMessage());
                     return "Ollama服务请求失败: " + responseCode;
                 }
@@ -970,7 +1024,7 @@ public class SubtitleWordSelectionController {
                     // 检测和清理可能的乱码
                     response = cleanupResponse(response);
                     
-                    // 过滤思考过程和think标签（应用多次过滤确保彻底删除）
+                    // 多层次过滤思考过程和think标签
                     response = filterThinkingContent(response);
                     // 再次过滤，确保彻底删除所有think标签
                     response = response.replaceAll("(?i)<think[^>]*>.*?</think>", "");
@@ -984,34 +1038,112 @@ public class SubtitleWordSelectionController {
                     // 移除任何包含"think"的标签片段
                     response = response.replaceAll("(?i)\\bthink[^\\s]*>", "");
                     
-                    // 提取美式音标并添加到标题中
-                    String processedResponse = response;
-                    Pattern phoneticsPattern = Pattern.compile("\\[([^\\]]+)\\]|（([^）]+)）");
-                    Matcher phoneticsMatcher = phoneticsPattern.matcher(response);
-                    
+                    // 更强大的音标提取逻辑
                     boolean foundPhonetics = false;
-                    while (phoneticsMatcher.find()) {
-                        String phonetics = phoneticsMatcher.group(1) != null ? phoneticsMatcher.group(1) : phoneticsMatcher.group(2);
-                        if (phonetics != null && (phonetics.contains("ə") || phonetics.contains("ɪ") || 
-                                                phonetics.contains("ʌ") || phonetics.contains("ɑ") || 
-                                                phonetics.contains("ɔ") || phonetics.contains("æ") ||
-                                                phonetics.contains("ː") || phonetics.matches(".*[a-zA-Z].*"))) {
-                            // 看起来是音标，保存到extractedPhonetics中
+                    
+                    // 1. 首先尝试查找"美音："或"美式发音："等明确标记后面的音标
+                    Pattern usPattern = Pattern.compile("(?:美音|【美音】|美式发音|美式音标|音标)[:：]\\s*\\[([^\\]]+)\\]");
+                    Matcher usMatcher = usPattern.matcher(response);
+                    if (usMatcher.find()) {
+                        String phonetics = usMatcher.group(1);
+                        if (phonetics != null && !phonetics.isEmpty()) {
                             extractedPhonetics = " [" + phonetics + "]";
                             foundPhonetics = true;
-                            break;
+                            Log.d(TAG, "从标记中提取到音标: " + extractedPhonetics);
                         }
                     }
                     
-                    // 如果无法提取音标，尝试查找"美音："或"美式发音："等标记
+                    // 1.1 查找"美音："或"美式发音："等明确标记后面的反斜杠音标格式 /pi:/
                     if (!foundPhonetics) {
-                        Pattern usPattern = Pattern.compile("(?:美音|美式发音|美式音标)[:：]\\s*\\[([^\\]]+)\\]");
-                        Matcher usMatcher = usPattern.matcher(response);
-                        if (usMatcher.find()) {
-                            String phonetics = usMatcher.group(1);
-                            if (phonetics != null) {
+                        Pattern usSlashPattern = Pattern.compile("(?:美音|【美音】|美式发音|美式音标|音标)[:：]\\s*\\/([^\\/]+)\\/");
+                        Matcher usSlashMatcher = usSlashPattern.matcher(response);
+                        if (usSlashMatcher.find()) {
+                            String phonetics = usSlashMatcher.group(1);
+                            if (phonetics != null && !phonetics.isEmpty()) {
+                                extractedPhonetics = " [" + phonetics + "]"; // 转换为方括号格式
+                                foundPhonetics = true;
+                                Log.d(TAG, "从标记中提取到反斜杠格式音标: " + extractedPhonetics);
+                            }
+                        }
+                    }
+                    
+                    // 2. 如果没找到明确标记的音标，尝试在整个文本中找出可能的音标
+                    if (!foundPhonetics) {
+                        Pattern phoneticsPattern = Pattern.compile("\\[([^\\]]+)\\]|（([^）]+)）");
+                        Matcher phoneticsMatcher = phoneticsPattern.matcher(response);
+                        
+                        while (phoneticsMatcher.find()) {
+                            String phonetics = phoneticsMatcher.group(1) != null ? phoneticsMatcher.group(1) : phoneticsMatcher.group(2);
+                            if (phonetics != null && (
+                                    phonetics.contains("ə") || 
+                                    phonetics.contains("ɪ") || 
+                                    phonetics.contains("ʌ") || 
+                                    phonetics.contains("ɑ") || 
+                                    phonetics.contains("ɔ") || 
+                                    phonetics.contains("æ") ||
+                                    phonetics.contains("ː") || 
+                                    phonetics.contains("ˈ") || 
+                                    phonetics.contains("ˌ") ||
+                                    phonetics.matches(".*[a-zA-Z].*"))) {
+                                // 看起来是音标，保存到extractedPhonetics中
                                 extractedPhonetics = " [" + phonetics + "]";
                                 foundPhonetics = true;
+                                Log.d(TAG, "从文本中提取到音标: " + extractedPhonetics);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 2.1 如果没找到方括号音标，尝试查找反斜杠格式的音标 /pi:/
+                    if (!foundPhonetics) {
+                        Pattern slashPhoneticPattern = Pattern.compile("\\/([^\\/]+)\\/");
+                        Matcher slashPhoneticMatcher = slashPhoneticPattern.matcher(response);
+                        
+                        while (slashPhoneticMatcher.find()) {
+                            String phonetics = slashPhoneticMatcher.group(1);
+                            if (phonetics != null && (
+                                    phonetics.contains("ə") || 
+                                    phonetics.contains("ɪ") || 
+                                    phonetics.contains("ʌ") || 
+                                    phonetics.contains("ɑ") || 
+                                    phonetics.contains("ɔ") || 
+                                    phonetics.contains("æ") ||
+                                    phonetics.contains("ː") || 
+                                    phonetics.contains("ˈ") || 
+                                    phonetics.contains("ˌ") ||
+                                    phonetics.contains("i:") || 
+                                    phonetics.contains("e:") || 
+                                    phonetics.contains("u:") ||
+                                    phonetics.contains("ɒ") || 
+                                    phonetics.contains("ɜ") || 
+                                    phonetics.matches(".*[a-zA-Z].*"))) {
+                                // 看起来是音标，保存到extractedPhonetics中
+                                extractedPhonetics = " [" + phonetics + "]"; // 转换为方括号格式
+                                foundPhonetics = true;
+                                Log.d(TAG, "从文本中提取到反斜杠格式音标: " + extractedPhonetics);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 3. 尝试从文本开头的几行查找音标（Ollama常在回答开头提供音标）
+                    if (!foundPhonetics) {
+                        String[] lines = response.split("\n");
+                        for (int i = 0; i < Math.min(5, lines.length); i++) {
+                            String line = lines[i].trim();
+                            if (line.contains("[") && line.contains("]") && 
+                                (line.contains("音标") || line.contains("发音") || line.contains("读音"))) {
+                                int start = line.indexOf("[");
+                                int end = line.indexOf("]", start);
+                                if (start >= 0 && end > start) {
+                                    String phonetics = line.substring(start + 1, end);
+                                    if (!phonetics.isEmpty()) {
+                                        extractedPhonetics = " [" + phonetics + "]";
+                                        foundPhonetics = true;
+                                        Log.d(TAG, "从开头几行提取到音标: " + extractedPhonetics);
+                                        break;
+                                    }
+                                }
                             }
                         }
                     }
@@ -1024,8 +1156,8 @@ public class SubtitleWordSelectionController {
                     titleBuilder.append("\n");
                     definition.append(titleBuilder);
                     
-                    // 从解释内容中移除所有音标和发音相关内容
-                    String cleanResponse = removePhonetics(response);
+                    // 从解释内容中彻底移除所有音标和发音相关内容
+                    String cleanResponse = removePhoneticFromText(response);
                     
                     // 检查是否包含中文，如果不包含，添加提示
                     if (!containsChinese(cleanResponse)) {
@@ -1180,8 +1312,8 @@ public class SubtitleWordSelectionController {
                     SpannableStringBuilder builder = new SpannableStringBuilder();
                     String[] lines = text.split("\n");
                     
-                    // 添加额外的间距，使布局更加美观
-                    int lineSpacing = 5; // 减小段落间距（以像素为单位）
+                    // 减小段落间距
+                    int lineSpacing = 5;
                     boolean lastLineWasEmpty = false;
                     
                     for (int i = 0; i < lines.length; i++) {
@@ -1231,7 +1363,7 @@ public class SubtitleWordSelectionController {
                                 }
                             }
                         }
-                        // 单独处理音标行 [音标] 或包含"美音："的行
+                        // 单独处理音标行
                         else if ((line.contains("[") && line.contains("]") && 
                                 (line.contains("音标") || line.contains("美") || line.contains("英"))) ||
                                 line.matches(".*(?:美式发音|美音|音标)[:：].*\\[.*\\].*")) {
@@ -1247,21 +1379,14 @@ public class SubtitleWordSelectionController {
                             ss.setSpan(new RelativeSizeSpan(1.1f), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
                             builder.append(ss);
                         }
-                        // 处理警告/提示信息（如AI没有使用中文回答）
+                        // 处理警告/提示信息
                         else if (line.startsWith("注意：")) {
                             SpannableString ss = new SpannableString(line);
                             ss.setSpan(new ForegroundColorSpan(Color.rgb(255, 100, 100)), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
                             ss.setSpan(new StyleSpan(android.graphics.Typeface.ITALIC), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
                             builder.append(ss);
                         }
-                        // 处理单独的音标行 [音标]
-                        else if (line.contains("[") && line.contains("]") && 
-                                (line.contains("音标") || line.contains("美") || line.contains("英"))) {
-                            SpannableString ss = new SpannableString(line);
-                            ss.setSpan(new ForegroundColorSpan(Color.CYAN), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            builder.append(ss);
-                        }
-                        // 处理列表项 •
+                        // 处理列表项
                         else if (line.startsWith("•")) {
                             SpannableString ss = new SpannableString("  " + line); // 添加缩进
                             ss.setSpan(new ForegroundColorSpan(Color.WHITE), 0, ss.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -1323,38 +1448,93 @@ public class SubtitleWordSelectionController {
                     // 设置行间距
                     mTextView.setLineSpacing(lineSpacing, 1.1f);
                     
-                    // 手动触发布局更新，使容器适应内容宽度
+                    // 手动触发布局更新，使容器适应内容大小
                     mTextView.post(() -> {
-                        // 确保宽度在最小和最大范围内
-                        int contentWidth = mTextView.getLayout() != null ? 
-                                Math.max(mTextView.getLayout().getWidth() + mTextView.getPaddingLeft() + mTextView.getPaddingRight(), 
-                                mTextView.getMinWidth()) : mTextView.getMinWidth();
+                        // 确保布局已经计算完成
+                        if (mTextView.getLayout() == null) {
+                            mTextView.requestLayout();
+                            return;
+                        }
                         
-                        // 根据内容调整宽度，并保持高度不变
+                        // 计算屏幕尺寸
+                        int screenWidth = mContext.getResources().getDisplayMetrics().widthPixels;
+                        int screenHeight = mContext.getResources().getDisplayMetrics().heightPixels;
+                        
+                        // 计算文本实际宽度和高度
+                        int contentWidth = mTextView.getLayout().getWidth() + mTextView.getPaddingLeft() + mTextView.getPaddingRight();
+                        int contentHeight = mTextView.getLayout().getHeight() + mTextView.getPaddingTop() + mTextView.getPaddingBottom();
+                        
+                        // 计算行数和估计高度
+                        int lineCount = mTextView.getLineCount();
+                        float lineHeight = mTextView.getLineHeight();
+                        
+                        // 限制最大宽度(屏幕宽度的85%)和最小宽度(屏幕宽度的55%)
+                        int maxWidth = (int)(screenWidth * 0.85f);
+                        int minWidth = (int)(screenWidth * 0.55f);
+                        
+                        // 限制最大高度(屏幕高度的75%)和最小高度(至少3行)
+                        int maxHeight = (int)(screenHeight * 0.75f);
+                        int minHeight = (int)(lineHeight * 3) + mTextView.getPaddingTop() + mTextView.getPaddingBottom();
+                        
+                        // 根据内容计算理想宽度
+                        int idealWidth = Math.max(minWidth, Math.min(contentWidth, maxWidth));
+                        
+                        // 根据内容计算理想高度
+                        int idealHeight;
+                        if (lineCount <= 5) {
+                            // 如果行数很少，直接使用实际内容高度
+                            idealHeight = contentHeight;
+                        } else if (lineCount <= 15) {
+                            // 中等行数，显示所有内容但不超过最大高度
+                            idealHeight = Math.min(contentHeight, maxHeight);
+                        } else {
+                            // 大量内容，显示一个固定高度，允许滚动
+                            idealHeight = Math.min((int)(lineHeight * 15) + mTextView.getPaddingTop() + mTextView.getPaddingBottom(), maxHeight);
+                        }
+                        
+                        // 确保高度不小于最小高度
+                        idealHeight = Math.max(minHeight, idealHeight);
+                        
+                        // 获取当前参数
                         ViewGroup.LayoutParams params = mSelectionOverlay.getLayoutParams();
                         if (params instanceof FrameLayout.LayoutParams) {
-                            // 记录旧高度
-                            int oldHeight = params.height;
-                            // 更新宽度
-                            params.width = contentWidth;
-                            // 恢复高度
-                            params.height = oldHeight;
+                            // 更新宽度和高度
+                            params.width = idealWidth;
+                            params.height = idealHeight;
+                            
                             // 应用更新的布局参数
                             mSelectionOverlay.setLayoutParams(params);
                             
-                            Log.d(TAG, "动态调整窗口宽度: " + contentWidth);
+                            Log.d(TAG, "动态调整窗口大小: 宽度=" + idealWidth + ", 高度=" + idealHeight + 
+                                  ", 行数=" + lineCount + ", 内容实际宽度=" + contentWidth + 
+                                  ", 内容实际高度=" + contentHeight);
                         }
+                        
+                        // 重置滚动位置
+                        mScrollPosition = 0;
+                        mTextView.scrollTo(0, 0);
                     });
                     
                 } catch (Exception e) {
                     // 如果样式应用失败，退回到普通文本
                     Log.w(TAG, "应用文本样式失败: " + e.getMessage());
                     mTextView.setText(text);
+                    
+                    // 即使失败也尝试调整大小
+                    mTextView.post(() -> {
+                        try {
+                            // 设置默认大小
+                            ViewGroup.LayoutParams params = mSelectionOverlay.getLayoutParams();
+                            if (params != null) {
+                                int screenWidth = mContext.getResources().getDisplayMetrics().widthPixels;
+                                params.width = (int)(screenWidth * 0.7f);
+                                mSelectionOverlay.setLayoutParams(params);
+                            }
+                        } catch (Exception ex) {
+                            Log.e(TAG, "调整默认大小失败: " + ex.getMessage());
+                        }
+                    });
                 }
-                
-                // 重置滚动位置
-                mScrollPosition = 0;
-                mTextView.scrollTo(0, 0);
             }
             
             mSelectionOverlay.setVisibility(View.VISIBLE);
@@ -1365,7 +1545,7 @@ public class SubtitleWordSelectionController {
                 AlphaAnimation fadeIn = new AlphaAnimation(0.0f, 1.0f);
                 fadeIn.setDuration(300);
                 mSelectionOverlay.startAnimation(fadeIn);
-            } catch (Exception e) {
+        } catch (Exception e) {
                 Log.w(TAG, "应用淡入动画失败: " + e.getMessage());
             }
         }
@@ -1376,7 +1556,7 @@ public class SubtitleWordSelectionController {
      */
     private void hideDefinitionOverlay() {
         if (mSelectionOverlay != null) {
-            mSelectionOverlay.setVisibility(View.GONE);
+        mSelectionOverlay.setVisibility(View.GONE);
             mIsShowingDefinition = false;
         }
     }
@@ -1717,8 +1897,7 @@ public class SubtitleWordSelectionController {
                 Log.e(TAG, "计算可见行出错: " + e.getMessage());
             }
             
-            // 如果方向向下，则从当前最后可见行的下一行开始滚动
-            // 如果方向向上，则从当前第一可见行的上一行结束滚动
+            // 根据滚动方向计算目标行
             int targetLine;
             if (direction > 0) {
                 // 向下滚动，目标是当前最后可见行之后的一页
@@ -1868,7 +2047,8 @@ public class SubtitleWordSelectionController {
         
         // 设置多行显示和自动换行
         mTextView.setSingleLine(false);
-        mTextView.setMaxLines(15); // 最大行数
+        // 不设置最大行数，允许内容自由扩展
+        mTextView.setMaxLines(Integer.MAX_VALUE);
         mTextView.setEllipsize(null);
         mTextView.setHorizontallyScrolling(false);
         
@@ -1886,7 +2066,7 @@ public class SubtitleWordSelectionController {
         // 设置滚动容器的布局参数
         FrameLayout.LayoutParams containerParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,  // 宽度根据内容自动调整
-                FrameLayout.LayoutParams.WRAP_CONTENT
+                FrameLayout.LayoutParams.WRAP_CONTENT   // 高度根据内容自动调整
         );
         containerParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL; // 放置在顶部中央
         containerParams.topMargin = 50;  // 增加顶部距离，避免遮挡字幕
@@ -1894,18 +2074,11 @@ public class SubtitleWordSelectionController {
         // 计算屏幕宽度
         int screenWidth = mContext.getResources().getDisplayMetrics().widthPixels;
         
-        // 设置最小宽度和最大宽度限制
-        int minWidth = (int)(screenWidth * 0.55f);  // 最小为屏幕宽度的55%
-        int maxWidth = (int)(screenWidth * 0.85f);  // 最大为屏幕宽度的85%
+        // 设置初始宽度为屏幕宽度的70%
+        containerParams.width = (int)(screenWidth * 0.7f);
         
-        // 设置宽度约束
-        mTextView.setMinWidth(minWidth);
-        mTextView.setMaxWidth(maxWidth);
-        
-        // 计算13行文本的高度
-        int lineHeight = (int) (mTextView.getTextSize() * 1.1f); // 估计行高
-        int paddingVertical = mTextView.getPaddingTop() + mTextView.getPaddingBottom();
-        containerParams.height = lineHeight * 13 + paddingVertical; // 设置高度为13行文本高度
+        // 设置初始高度为自适应，稍后会根据内容动态调整
+        containerParams.height = FrameLayout.LayoutParams.WRAP_CONTENT;
         
         mSelectionOverlay.setLayoutParams(containerParams);
         
@@ -1953,7 +2126,7 @@ public class SubtitleWordSelectionController {
             return "";
         }
         
-        // 移除所有尖括号及其中间的内容（通用规则，放在最前面）
+        // 移除所有尖括号及其中间内容（通用规则，放在最前面）
         String filtered = text.replaceAll("<[^>]*>", "");
         
         // 移除XML风格的<think>...</think>标签及其内容
@@ -1993,40 +2166,115 @@ public class SubtitleWordSelectionController {
     }
     
     /**
-     * 从文本中移除所有音标和发音相关内容
-     * @param text 原始文本
+     * 从解释内容中移除音标
+     * @param text 原始解释文本
      * @return 移除音标后的文本
      */
-    private String removePhonetics(String text) {
+    private String removePhoneticFromText(String text) {
         if (text == null) {
             return "";
         }
         
-        // 移除所有尖括号及其中间内容
-        String result = text.replaceAll("<[^>]*>", "");
+        // 保存原始文本
+        String originalText = text;
         
-        // 移除美式音标相关行
-        result = result.replaceAll("(?m)^.*(?:美音|美式发音|美式音标|英音|英式发音|音标)[:：]\\s*\\[.*\\].*$", "");
+        // 处理文本，按行处理以确保更精确的控制
+        String[] lines = text.split("\n");
+        StringBuilder cleanedTextBuilder = new StringBuilder();
         
-        // 移除独立的音标 [ˈsʌmθɪŋ]
-        result = result.replaceAll("\\[[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "");
+        for (String line : lines) {
+            // 跳过只包含音标的行
+            if (isPhoneticOnlyLine(line)) {
+                continue;
+            }
+            
+            // 从行中移除音标部分
+            String cleanedLine = removePhoneticFromLine(line);
+            
+            // 如果清理后的行不为空，添加到结果中
+            if (!cleanedLine.trim().isEmpty()) {
+                cleanedTextBuilder.append(cleanedLine).append("\n");
+            }
+        }
         
-        // 移除包含明显音标符号的方括号内容
-        result = result.replaceAll("\\[[^\\]]*[ɑɔəɪʊʌæɜːɒŋθðʃʒɚɝˈˌ][^\\]]*\\]", "");
+        // 最终处理
+        String cleanedText = cleanedTextBuilder.toString();
         
-        // 移除【发音】部分和相似内容
-        result = result.replaceAll("【发音】[^【】]+", "");
-        result = result.replaceAll("\\*\\*发音\\*\\*[^*]+\\*\\*", "");
+        // 移除可能残留的音标标记，如"美音："后没有跟音标
+        cleanedText = cleanedText.replaceAll("(?:美音|美式发音|美式音标|英音|英式发音|英式音标|音标)[:：]\\s*(?=$|\\n)", "");
         
-        // 移除"发音："后面的内容，直到行尾
-        result = result.replaceAll("发音：.*?(?:\\n|$)", "\n");
+        // 移除"发音："等后面可能跟随的不包含在[]或//中的音标
+        cleanedText = cleanedText.replaceAll("(?:发音|读音|音标)[:：]\\s*[^\\n]*(?=$|\\n)", "");
         
         // 移除空行
-        result = result.replaceAll("(?m)^\\s*$\\n", "");
+        cleanedText = cleanedText.replaceAll("(?m)^\\s*$\\n", "");
         
         // 合并多个连续空行
-        result = result.replaceAll("\n{3,}", "\n\n");
+        cleanedText = cleanedText.replaceAll("\n{3,}", "\n\n");
         
-        return result.trim();
+        // 检查是否删除了太多内容
+        if (cleanedText.trim().isEmpty() && !originalText.trim().isEmpty()) {
+            // 如果删除了所有内容，则使用简单的方式只删除明显的音标
+            return originalText
+                .replaceAll("\\[[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "")
+                .replaceAll("\\/[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\/", "")
+                .trim();
+        }
+        
+        return cleanedText.trim();
+    }
+    
+    /**
+     * 判断一行文本是否只包含音标
+     * @param line 要检查的行
+     * @return 如果只包含音标，返回true
+     */
+    private boolean isPhoneticOnlyLine(String line) {
+        String trimmedLine = line.trim();
+        
+        // 检查是否是纯音标行
+        if (trimmedLine.matches("^\\s*\\[[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]\\s*$")) {
+            return true;
+        }
+        
+        // 检查是否是纯反斜杠音标行
+        if (trimmedLine.matches("^\\s*\\/[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\/\\s*$")) {
+            return true;
+        }
+        
+        // 检查是否是"美音："等开头后面跟音标的行
+        if (trimmedLine.matches("^\\s*(?:美音|美式发音|美式音标|英音|英式发音|英式音标|音标)[:：]\\s*\\[[^\\]]+\\]\\s*$")) {
+            return true;
+        }
+        
+        // 检查是否是"美音："等开头后面跟反斜杠音标的行
+        if (trimmedLine.matches("^\\s*(?:美音|美式发音|美式音标|英音|英式发音|英式音标|音标)[:：]\\s*\\/[^\\/]+\\/\\s*$")) {
+            return true;
+        }
+        
+        // 检查是否是只包含"发音"或"音标"的行
+        if (trimmedLine.matches("^\\s*(?:发音|读音|音标)[:：]?\\s*$")) {
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 从一行文本中移除音标
+     * @param line 要处理的行
+     * @return 移除音标后的行
+     */
+    private String removePhoneticFromLine(String line) {
+        // 移除方括号音标
+        String cleanedLine = line.replaceAll("\\[[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "");
+        
+        // 移除反斜杠音标
+        cleanedLine = cleanedLine.replaceAll("\\/[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\/", "");
+        
+        // 移除美音、英音等标记后面的音标部分
+        cleanedLine = cleanedLine.replaceAll("(?:美音|美式发音|美式音标|英音|英式发音|英式音标|音标)[:：]\\s*(?:\\[[^\\]]+\\]|\\/[^\\/]+\\/)", "");
+        
+        return cleanedLine.trim();
     }
 } 
