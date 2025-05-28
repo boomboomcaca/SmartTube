@@ -715,44 +715,29 @@ public class SubtitleWordSelectionController {
             return;
         }
         
-        String currentWord = mWords[mCurrentWordIndex];
+        // 获取mWords数组中的当前单词
+        String currentWordFromArray = mWords[mCurrentWordIndex];
+        
+        // 尝试从字幕高亮获取实际单词
+        String actualHighlightedWord = getActualHighlightedWord();
+        
+        // 使用实际高亮单词（如果能获取到），否则使用数组中的单词
+        String wordToTranslate = (actualHighlightedWord != null && !actualHighlightedWord.isEmpty()) ? 
+                                actualHighlightedWord : currentWordFromArray;
+        
+        // 记录日志，便于调试
+        if (!wordToTranslate.equals(currentWordFromArray)) {
+            Log.d(TAG, "使用实际高亮单词: " + wordToTranslate + " 替代数组中单词: " + currentWordFromArray);
+        }
         
         // 显示覆盖层和加载提示
         showDefinitionOverlay("正在查询中...\n请稍候");
         
         // 创建一个新线程来执行网络请求，避免阻塞主线程
+        final String finalWordToTranslate = wordToTranslate;
         new Thread(() -> {
-            // 尝试使用主API
-            String definition = fetchWordDefinition(currentWord);
-            
-            // 检查主API结果是否有效
-            boolean isValidResult = definition != null && 
-                                  !definition.contains("获取解释失败") && 
-                                  !definition.contains("无法获取解释") &&
-                                  !definition.equals("未找到 \"" + currentWord + "\" 的释义");
-            
-            // 如果主API失败，尝试备用API
-            if (!isValidResult) {
-                Log.d(TAG, "主API失败，尝试使用备用API");
-                
-                // 更新UI提示正在使用备用API
-                if (mContext instanceof Activity) {
-                    ((Activity) mContext).runOnUiThread(() -> {
-                        if (mTextView != null && mIsWordSelectionMode) {
-                            showDefinitionOverlay("正在使用备用API查询...");
-                        }
-                    });
-                }
-                
-                String backupDefinition = fetchWordDefinitionBackup(currentWord);
-                
-                // 如果备用API有结果，使用备用API的结果
-                if (backupDefinition != null && 
-                    !backupDefinition.contains("备用API获取解释失败") && 
-                    !backupDefinition.contains("备用API请求失败")) {
-                    definition = backupDefinition;
-                }
-            }
+            // 使用Ollama本地服务查询词义
+            String definition = fetchOllamaDefinition(finalWordToTranslate, mCurrentSubtitleText);
             
             // 记录日志
             Log.d(TAG, "翻译结果长度: " + (definition != null ? definition.length() : "null"));
@@ -774,6 +759,411 @@ public class SubtitleWordSelectionController {
     }
     
     /**
+     * 获取字幕中实际高亮的单词
+     * @return 实际高亮的单词，如果无法获取则返回null
+     */
+    private String getActualHighlightedWord() {
+        if (mSubtitleView == null) {
+            return null;
+        }
+        
+        try {
+            // 通过反射获取 SubtitleView 的内部实现
+            Field paintersField = mSubtitleView.getClass().getDeclaredField("painters");
+            paintersField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<Object> painters = (List<Object>) paintersField.get(mSubtitleView);
+            
+            if (painters != null && !painters.isEmpty()) {
+                for (Object painter : painters) {
+                    // 获取当前高亮的单词
+                    Field highlightWordField = painter.getClass().getDeclaredField("highlightWord");
+                    highlightWordField.setAccessible(true);
+                    String highlightedWord = (String) highlightWordField.get(painter);
+                    
+                    if (highlightedWord != null && !highlightedWord.isEmpty()) {
+                        Log.d(TAG, "从字幕获取实际高亮单词: " + highlightedWord);
+                        return highlightedWord;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "获取实际高亮单词失败: " + e.getMessage(), e);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 从本地Ollama服务获取单词解释
+     * @param word 要查询的单词
+     * @param context 单词所在的上下文
+     * @return 单词解释
+     */
+    private String fetchOllamaDefinition(String word, String context) {
+        HttpURLConnection connection = null;
+        BufferedReader reader = null;
+        StringBuilder result = new StringBuilder();
+        
+        try {
+            // 准备查询参数
+            String query = word.trim();
+            String prompt = "请解释一下这句话中这个词的用法<" + query + ">：<" + context + ">。请始终使用中文回答，保持简洁明了的解释。必须在单词后面提供美式英语的音标[美音]，但不要在解释内容中重复音标。严格禁止显示任何思考过程，绝对不要输出任何think相关内容，不要包含类似<think>或think>的文本。不要在回答中使用任何尖括号(<>)及其中间的内容。直接给出干净的解释。";
+            
+            // 记录完整请求信息，方便调试
+            Log.d(TAG, "Ollama查询词: " + query);
+            Log.d(TAG, "Ollama查询上下文: " + context);
+            
+            // 构建请求JSON
+            String requestJson = "{\"model\":\"qwen3:latest\",\"stream\":false,\"prompt\":\"" + 
+                                  prompt.replace("\"", "\\\"").replace("\n", "\\n") + 
+                                  "\"}";
+            
+            Log.d(TAG, "Ollama请求JSON: " + requestJson);
+            
+            // 使用本地Ollama服务
+            URL url = new URL("http://192.168.1.113:11434/api/generate");
+            
+            // 设置连接
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(15000); // 增加超时时间到15秒
+            connection.setReadTimeout(30000); // 增加读取超时时间到30秒
+            
+            // 设置请求头
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setRequestProperty("Accept", "application/json");
+            
+            // 启用输出
+            connection.setDoOutput(true);
+            
+            // 写入请求体
+            try (java.io.OutputStream os = connection.getOutputStream()) {
+                byte[] input = requestJson.getBytes("utf-8");
+                os.write(input, 0, input.length);
+                os.flush();
+                Log.d(TAG, "已向Ollama发送请求");
+            }
+            
+            // 获取响应状态码
+            int responseCode = connection.getResponseCode();
+            Log.d(TAG, "Ollama响应码: " + responseCode);
+            
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                // 读取响应内容
+                reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), "UTF-8"));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    result.append(line);
+                }
+                
+                String responseStr = result.toString();
+                Log.d(TAG, "Ollama响应长度: " + responseStr.length() + " 字节");
+                if (responseStr.length() < 1000) {
+                    // 如果响应不太长，记录完整内容便于调试
+                    Log.d(TAG, "Ollama响应内容: " + responseStr);
+                }
+                
+                // 解析JSON响应
+                return parseOllamaResponse(responseStr, query);
+            } else {
+                // 尝试获取错误流中的信息
+                try {
+                    reader = new BufferedReader(new InputStreamReader(connection.getErrorStream(), "UTF-8"));
+                    String line;
+                    StringBuilder errorResult = new StringBuilder();
+                    while ((line = reader.readLine()) != null) {
+                        errorResult.append(line);
+                    }
+                    Log.e(TAG, "Ollama错误响应: " + errorResult.toString());
+                    return "Ollama服务请求失败: " + responseCode + ", " + errorResult.toString();
+                } catch (Exception e) {
+                    Log.e(TAG, "无法读取错误流: " + e.getMessage());
+                    return "Ollama服务请求失败: " + responseCode;
+                }
+            }
+        } catch (Exception e) {
+            // 记录详细的异常信息
+            Log.e(TAG, "调用Ollama异常: " + e.getClass().getName() + ": " + e.getMessage(), e);
+            if (e instanceof java.net.ConnectException) {
+                return "连接Ollama服务失败: 请检查服务是否启动或IP地址是否正确";
+            } else if (e instanceof java.net.SocketTimeoutException) {
+                return "连接Ollama服务超时: 请求可能需要更长时间或服务器负载过高";
+            } else {
+                return "查询失败: " + e.getClass().getSimpleName() + " - " + (e.getMessage() != null ? e.getMessage() : "未知错误");
+            }
+        } finally {
+            // 关闭连接和读取器
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (IOException e) {
+                    Log.e(TAG, "关闭读取器失败: " + e.getMessage(), e);
+                }
+            }
+            if (connection != null) {
+                connection.disconnect();
+                Log.d(TAG, "已断开Ollama连接");
+            }
+        }
+    }
+    
+    /**
+     * 解析Ollama服务响应
+     * @param jsonResponse JSON响应字符串
+     * @param word 查询的单词
+     * @return 格式化的解释
+     */
+    private String parseOllamaResponse(String jsonResponse, String word) {
+        try {
+            if (jsonResponse == null || jsonResponse.trim().isEmpty()) {
+                Log.e(TAG, "Ollama返回了空响应");
+                return "【" + capitalizeFirstLetter(word) + "】\n\n获取解释失败：服务器返回空响应";
+            }
+            
+            StringBuilder definition = new StringBuilder();
+            
+            // 确保使用实际的查询单词，而不是内部数组的单词
+            String displayWord = word;
+            // 确保首字母大写
+            String capitalizedWord = capitalizeFirstLetter(displayWord);
+            
+            // 添加查询单词标题（标题将在下面处理音标后加入）
+            StringBuilder titleBuilder = new StringBuilder();
+            titleBuilder.append("【").append(capitalizedWord);
+            
+            // 用于保存提取到的音标
+            String extractedPhonetics = "";
+            
+            // 从JSON中提取响应文本
+            if (jsonResponse.contains("\"response\":")) {
+                int responseIndex = jsonResponse.indexOf("\"response\":") + 12;
+                int responseEnd = -1;
+                
+                // 查找响应文本的结束位置，处理可能的转义字符
+                for (int i = responseIndex; i < jsonResponse.length(); i++) {
+                    if (jsonResponse.charAt(i) == '"' && (i == 0 || jsonResponse.charAt(i-1) != '\\')) {
+                        responseEnd = i;
+                        break;
+                    }
+                }
+                
+                if (responseIndex > 0 && responseEnd > responseIndex) {
+                    String response = jsonResponse.substring(responseIndex, responseEnd);
+                    // 清理转义字符
+                    response = response.replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\");
+                    
+                    // 解码Unicode转义序列（如\u003e \u003c等）
+                    response = decodeUnicodeEscapes(response);
+                    
+                    // 在早期阶段直接移除所有think>文本
+                    response = response.replace("think>", "");
+                    response = response.replace("<think", "");
+                    response = response.replace("</think", "");
+                    response = response.replace("<think>", "");
+                    response = response.replace("</think>", "");
+                    response = response.replace("think", "");
+                    
+                    // 专门移除所有尖括号及其中间内容
+                    response = response.replaceAll("<[^>]*>", "");
+                    
+                    // 检测和清理可能的乱码
+                    response = cleanupResponse(response);
+                    
+                    // 过滤思考过程和think标签（应用多次过滤确保彻底删除）
+                    response = filterThinkingContent(response);
+                    // 再次过滤，确保彻底删除所有think标签
+                    response = response.replaceAll("(?i)<think[^>]*>.*?</think>", "");
+                    response = response.replaceAll("(?i)</?think[^>]*>", "");
+                    // 移除可能遗漏的标签
+                    response = response.replaceAll("(?i)<[/]?think.*?>", "");
+                    // 移除单词"think"后面的内容，如果它看起来像是标签的开始
+                    response = response.replaceAll("(?i)think>.*?<", "");
+                    // 直接移除残留的"think>"文本
+                    response = response.replace("think>", "");
+                    // 移除任何包含"think"的标签片段
+                    response = response.replaceAll("(?i)\\bthink[^\\s]*>", "");
+                    
+                    // 提取美式音标并添加到标题中
+                    String processedResponse = response;
+                    Pattern phoneticsPattern = Pattern.compile("\\[([^\\]]+)\\]|（([^）]+)）");
+                    Matcher phoneticsMatcher = phoneticsPattern.matcher(response);
+                    
+                    boolean foundPhonetics = false;
+                    while (phoneticsMatcher.find()) {
+                        String phonetics = phoneticsMatcher.group(1) != null ? phoneticsMatcher.group(1) : phoneticsMatcher.group(2);
+                        if (phonetics != null && (phonetics.contains("ə") || phonetics.contains("ɪ") || 
+                                                phonetics.contains("ʌ") || phonetics.contains("ɑ") || 
+                                                phonetics.contains("ɔ") || phonetics.contains("æ") ||
+                                                phonetics.contains("ː") || phonetics.matches(".*[a-zA-Z].*"))) {
+                            // 看起来是音标，保存到extractedPhonetics中
+                            extractedPhonetics = " [" + phonetics + "]";
+                            foundPhonetics = true;
+                            break;
+                        }
+                    }
+                    
+                    // 如果无法提取音标，尝试查找"美音："或"美式发音："等标记
+                    if (!foundPhonetics) {
+                        Pattern usPattern = Pattern.compile("(?:美音|美式发音|美式音标)[:：]\\s*\\[([^\\]]+)\\]");
+                        Matcher usMatcher = usPattern.matcher(response);
+                        if (usMatcher.find()) {
+                            String phonetics = usMatcher.group(1);
+                            if (phonetics != null) {
+                                extractedPhonetics = " [" + phonetics + "]";
+                                foundPhonetics = true;
+                            }
+                        }
+                    }
+                    
+                    // 完成标题，音标放在右括号后面
+                    titleBuilder.append("】");
+                    if (!extractedPhonetics.isEmpty()) {
+                        titleBuilder.append(extractedPhonetics);
+                    }
+                    titleBuilder.append("\n");
+                    definition.append(titleBuilder);
+                    
+                    // 从解释内容中移除所有音标和发音相关内容
+                    String cleanResponse = removePhonetics(response);
+                    
+                    // 检查是否包含中文，如果不包含，添加提示
+                    if (!containsChinese(cleanResponse)) {
+                        cleanResponse = "注意：AI没有使用中文回答。\n\n" + cleanResponse;
+                    }
+                    
+                    definition.append(cleanResponse);
+                    
+                    // 记录成功解析
+                    Log.d(TAG, "成功从Ollama响应中提取解释内容");
+                    return definition.toString();
+                } else {
+                    Log.e(TAG, "无法在JSON中找到响应文本的结束位置");
+                    definition.append(titleBuilder).append("】\n\n解析响应失败：无法提取响应文本");
+                }
+            } else if (jsonResponse.contains("\"error\":")) {
+                // 处理错误响应
+                int errorIndex = jsonResponse.indexOf("\"error\":") + 9;
+                int errorEnd = jsonResponse.indexOf("\"", errorIndex);
+                
+                if (errorIndex > 0 && errorEnd > errorIndex) {
+                    String error = jsonResponse.substring(errorIndex, errorEnd);
+                    Log.e(TAG, "Ollama返回错误: " + error);
+                    definition.append(titleBuilder).append("】\n\nOllama服务错误: ").append(error);
+                } else {
+                    Log.e(TAG, "JSON中包含error字段，但无法提取错误信息: " + jsonResponse);
+                    definition.append(titleBuilder).append("】\n\nOllama服务返回了错误，但无法提取错误信息");
+                }
+            } else {
+                // 如果无法解析JSON，记录并返回适当的错误消息
+                Log.e(TAG, "无法从JSON响应中找到response或error字段: " + jsonResponse);
+                definition.append(titleBuilder).append("】\n\n解析失败：响应格式不符合预期\n\n");
+                
+                // 如果JSON很短，直接附加它以便调试
+                if (jsonResponse.length() < 500) {
+                    definition.append("原始响应: ").append(jsonResponse);
+                } else {
+                    definition.append("原始响应过长，已省略");
+                }
+            }
+            
+            return definition.toString();
+        } catch (Exception e) {
+            Log.e(TAG, "解析Ollama响应异常: " + e.getClass().getName() + ": " + e.getMessage(), e);
+            return "【" + capitalizeFirstLetter(word) + "】\n\n解析响应失败: " + 
+                   e.getClass().getSimpleName() + " - " + 
+                   (e.getMessage() != null ? e.getMessage() : "未知错误");
+        }
+    }
+    
+    /**
+     * 清理响应文本中的乱码
+     * @param text 原始响应文本
+     * @return 清理后的文本
+     */
+    private String cleanupResponse(String text) {
+        if (text == null) {
+            return "";
+        }
+        
+        // 移除控制字符
+        String cleaned = text.replaceAll("[\\p{Cntrl}&&[^\r\n\t]]", "");
+        
+        // 移除不可打印字符
+        cleaned = cleaned.replaceAll("[^\\p{Print}\\p{Space}]", "");
+        
+        // 移除连续的空白字符
+        cleaned = cleaned.replaceAll("\\s+", " ");
+        
+        // 移除文本开头的特殊符号（如果有）
+        cleaned = cleaned.replaceAll("^[^\\w\\u4e00-\\u9fa5\\n]+", "");
+        
+        // 处理一些常见的乱码序列
+        cleaned = cleaned.replace("\uFFFD", ""); // 替换Unicode替换字符（常见乱码符号）
+        
+        return cleaned.trim();
+    }
+    
+    /**
+     * 检查文本是否包含中文字符
+     * @param text 要检查的文本
+     * @return 是否包含中文
+     */
+    private boolean containsChinese(String text) {
+        if (text == null || text.isEmpty()) {
+            return false;
+        }
+        
+        // 使用正则表达式检查是否包含中文字符
+        Pattern p = Pattern.compile("[\\u4e00-\\u9fa5]");
+        Matcher m = p.matcher(text);
+        return m.find();
+    }
+    
+    /**
+     * 解码字符串中的Unicode转义序列
+     * @param text 包含Unicode转义序列的文本
+     * @return 解码后的文本
+     */
+    private String decodeUnicodeEscapes(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        
+        try {
+            // 使用正则表达式查找所有Unicode转义序列
+            // 例如: \u003c 会被转换为 <
+            Pattern pattern = Pattern.compile("\\\\u([0-9a-fA-F]{4})");
+            Matcher matcher = pattern.matcher(text);
+            
+            StringBuilder result = new StringBuilder();
+            int lastEnd = 0;
+            
+            while (matcher.find()) {
+                // 添加匹配之前的文本
+                result.append(text.substring(lastEnd, matcher.start()));
+                
+                // 解码Unicode序列
+                String hexValue = matcher.group(1);
+                int charValue = Integer.parseInt(hexValue, 16);
+                result.append((char) charValue);
+                
+                lastEnd = matcher.end();
+            }
+            
+            // 添加剩余文本
+            if (lastEnd < text.length()) {
+                result.append(text.substring(lastEnd));
+            }
+            
+            return result.toString();
+        } catch (Exception e) {
+            Log.e(TAG, "解码Unicode转义序列失败: " + e.getMessage());
+            return text; // 如果解码失败，返回原始文本
+        }
+    }
+    
+    /**
      * 显示解释覆盖层
      */
     private void showDefinitionOverlay(String text) {
@@ -790,70 +1180,148 @@ public class SubtitleWordSelectionController {
                     SpannableStringBuilder builder = new SpannableStringBuilder();
                     String[] lines = text.split("\n");
                     
+                    // 添加额外的间距，使布局更加美观
+                    int lineSpacing = 5; // 减小段落间距（以像素为单位）
+                    boolean lastLineWasEmpty = false;
+                    
                     for (int i = 0; i < lines.length; i++) {
-                        String line = lines[i];
+                        String line = lines[i].trim();
+                        
+                        // 处理空行，避免连续空行
+                        if (line.isEmpty()) {
+                            if (!lastLineWasEmpty && i > 0) {
+                                builder.append("\n");
+                                lastLineWasEmpty = true;
+                            }
+                            continue;
+                        }
+                        
+                        lastLineWasEmpty = false;
                         
                         // 统一处理所有标题【标题】样式
-                        if (line.startsWith("【") && line.endsWith("】")) {
-                            // 判断是单词标题还是子标题
-                            if (i == 0 && line.contains("]") && (line.contains("音标") || line.contains("美") || line.contains("英"))) {
-                                // 处理第一行包含单词和音标的情况
-                                // 将单词名称和音标分开处理
-                                int bracketEnd = line.indexOf("】") + 1;
-                                
-                                // 处理单词名称部分（使用橙色和粗体，与标题一致）
-                                SpannableString wordPart = new SpannableString(line.substring(0, bracketEnd));
-                                wordPart.setSpan(new ForegroundColorSpan(Color.rgb(255, 165, 0)), 0, bracketEnd, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                                wordPart.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, bracketEnd, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                                builder.append(wordPart);
-                                
-                                // 处理音标部分（保持青色）
-                                if (bracketEnd < line.length()) {
-                                    SpannableString phoneticPart = new SpannableString(line.substring(bracketEnd));
-                                    phoneticPart.setSpan(new ForegroundColorSpan(Color.CYAN), 0, phoneticPart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                                    builder.append(phoneticPart);
+                        if (line.startsWith("【") && line.contains("】")) {
+                            // 提取标题部分和右括号后可能的音标部分
+                            int bracketEnd = line.indexOf("】") + 1;
+                            String titlePart = line.substring(0, bracketEnd);
+                            String afterTitle = "";
+                            
+                            if (bracketEnd < line.length()) {
+                                afterTitle = line.substring(bracketEnd);
+                            }
+                            
+                            // 处理标题部分
+                            SpannableString titleSpan = new SpannableString(titlePart);
+                            titleSpan.setSpan(new ForegroundColorSpan(Color.rgb(255, 200, 0)), 0, titlePart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            titleSpan.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, titlePart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            titleSpan.setSpan(new RelativeSizeSpan(1.2f), 0, titlePart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            builder.append(titleSpan);
+                            
+                            // 处理标题后的内容（如果有），主要是音标
+                            if (!afterTitle.isEmpty()) {
+                                // 检查是否包含音标
+                                if (afterTitle.contains("[") && afterTitle.contains("]")) {
+                                    SpannableString phoneticsSpan = new SpannableString(afterTitle);
+                                    phoneticsSpan.setSpan(new ForegroundColorSpan(Color.CYAN), 0, afterTitle.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                    phoneticsSpan.setSpan(new RelativeSizeSpan(0.9f), 0, afterTitle.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                    builder.append(phoneticsSpan);
+                                } else {
+                                    // 其他非音标内容使用普通样式
+                                    SpannableString afterTitleSpan = new SpannableString(afterTitle);
+                                    builder.append(afterTitleSpan);
                                 }
-                            } else {
-                                // 处理所有子标题（基本释义、网络释义、例句等）统一样式，只保留颜色和粗体，不改变大小
-                                SpannableString ss = new SpannableString(line);
-                                ss.setSpan(new ForegroundColorSpan(Color.rgb(255, 165, 0)), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                                ss.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                                builder.append(ss);
                             }
                         }
-                        // 处理单独的音标行 [音标]（不应该再有这种情况，但保留兼容）
+                        // 单独处理音标行 [音标] 或包含"美音："的行
+                        else if ((line.contains("[") && line.contains("]") && 
+                                (line.contains("音标") || line.contains("美") || line.contains("英"))) ||
+                                line.matches(".*(?:美式发音|美音|音标)[:：].*\\[.*\\].*")) {
+                            SpannableString ss = new SpannableString(line);
+                            ss.setSpan(new ForegroundColorSpan(Color.CYAN), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            builder.append(ss);
+                        }
+                        // 处理段落标题
+                        else if (line.contains("：") && line.length() < 20) {
+                            SpannableString ss = new SpannableString(line);
+                            ss.setSpan(new ForegroundColorSpan(Color.rgb(255, 165, 0)), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            ss.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            ss.setSpan(new RelativeSizeSpan(1.1f), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            builder.append(ss);
+                        }
+                        // 处理警告/提示信息（如AI没有使用中文回答）
+                        else if (line.startsWith("注意：")) {
+                            SpannableString ss = new SpannableString(line);
+                            ss.setSpan(new ForegroundColorSpan(Color.rgb(255, 100, 100)), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            ss.setSpan(new StyleSpan(android.graphics.Typeface.ITALIC), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            builder.append(ss);
+                        }
+                        // 处理单独的音标行 [音标]
                         else if (line.contains("[") && line.contains("]") && 
                                 (line.contains("音标") || line.contains("美") || line.contains("英"))) {
                             SpannableString ss = new SpannableString(line);
                             ss.setSpan(new ForegroundColorSpan(Color.CYAN), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            // 移除字体大小修改
                             builder.append(ss);
                         }
                         // 处理列表项 •
                         else if (line.startsWith("•")) {
-                            SpannableString ss = new SpannableString(line);
-                            ss.setSpan(new ForegroundColorSpan(Color.WHITE), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            SpannableString ss = new SpannableString("  " + line); // 添加缩进
+                            ss.setSpan(new ForegroundColorSpan(Color.WHITE), 0, ss.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            // 为项目符号添加特殊颜色
+                            ss.setSpan(new ForegroundColorSpan(Color.rgb(120, 230, 120)), 2, 3, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
                             builder.append(ss);
                         }
                         // 处理例句序号
                         else if (line.matches("^\\d+\\..*")) {
-                            SpannableString ss = new SpannableString(line);
-                            ss.setSpan(new ForegroundColorSpan(Color.LTGRAY), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            ss.setSpan(new StyleSpan(android.graphics.Typeface.ITALIC), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            builder.append(ss);
+                            // 查找序号的结束位置
+                            int dotIndex = line.indexOf('.');
+                            if (dotIndex > 0) {
+                                // 为序号部分创建样式
+                                SpannableString numberPart = new SpannableString(line.substring(0, dotIndex+1) + " ");
+                                numberPart.setSpan(new ForegroundColorSpan(Color.rgb(180, 180, 255)), 0, numberPart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                numberPart.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, numberPart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                
+                                // 为例句内容创建样式
+                                SpannableString examplePart = new SpannableString(line.substring(dotIndex+1).trim());
+                                examplePart.setSpan(new ForegroundColorSpan(Color.LTGRAY), 0, examplePart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                examplePart.setSpan(new StyleSpan(android.graphics.Typeface.ITALIC), 0, examplePart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                
+                                // 合并序号和例句
+                                builder.append(numberPart);
+                                builder.append(examplePart);
+                            } else {
+                                // 如果无法分离序号，使用默认样式
+                                SpannableString ss = new SpannableString(line);
+                                ss.setSpan(new ForegroundColorSpan(Color.LTGRAY), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                ss.setSpan(new StyleSpan(android.graphics.Typeface.ITALIC), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                builder.append(ss);
+                            }
                         }
-                        // 处理普通文本
+                        // 处理普通文本段落
                         else {
-                            builder.append(line);
+                            // 为普通文本添加适当的缩进和颜色
+                            SpannableString ss = new SpannableString(line);
+                            ss.setSpan(new ForegroundColorSpan(Color.rgb(220, 220, 220)), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            builder.append(ss);
                         }
                         
                         // 除了最后一行，每行后面添加换行符
                         if (i < lines.length - 1) {
                             builder.append("\n");
+                            
+                            // 如果当前行是标题，不添加额外的空行，直接紧跟内容
+                            if (!(line.startsWith("【") && line.contains("】"))) {
+                                // 只有非标题行才添加额外空行
+                                // 如果当前行是段落标题或特殊行，添加额外的空行
+                                if (line.contains("：") && line.length() < 20) {
+                                    builder.append("\n");
+                                }
+                            }
                         }
                     }
                     
                     mTextView.setText(builder);
+                    
+                    // 设置行间距
+                    mTextView.setLineSpacing(lineSpacing, 1.1f);
                     
                     // 手动触发布局更新，使容器适应内容宽度
                     mTextView.post(() -> {
@@ -920,465 +1388,6 @@ public class SubtitleWordSelectionController {
         if (mSelectionOverlay != null) {
             mSelectionOverlay.setVisibility(View.GONE);
         }
-    }
-    
-    /**
-     * 从有道词典API获取单词解释
-     * @param word 要查询的单词
-     * @return 单词解释
-     */
-    private String fetchWordDefinition(String word) {
-        HttpURLConnection connection = null;
-        BufferedReader reader = null;
-        StringBuilder result = new StringBuilder();
-        
-        try {
-            // 准备查询参数
-            String query = word.toLowerCase().trim();
-            
-            // 编码查询词，处理特殊字符
-            String encodedQuery = java.net.URLEncoder.encode(query, "UTF-8");
-            
-            // 使用有道词典API，更可靠的URL
-            URL url = new URL("https://dict.youdao.com/jsonapi?q=" + encodedQuery);
-            
-            Log.d(TAG, "查询单词: " + query + ", URL: " + url.toString());
-            
-            // 设置连接
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(8000); // 增加超时时间
-            connection.setReadTimeout(8000);
-            
-            // 设置请求头，模拟浏览器请求以避免被屏蔽
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
-            connection.setRequestProperty("Referer", "https://dict.youdao.com/");
-            
-            // 获取响应状态码
-            int responseCode = connection.getResponseCode();
-            
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                // 读取响应内容
-                reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), "UTF-8"));
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    result.append(line);
-                }
-                
-                Log.d(TAG, "有道词典API响应长度: " + result.length() + " 字节");
-                
-                // 解析JSON响应
-                return parseYoudaoResponse(result.toString(), word);
-            } else {
-                Log.e(TAG, "有道词典API请求失败: " + responseCode);
-                return "无法获取解释 (错误码: " + responseCode + ")";
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "获取单词解释失败: " + e.getMessage(), e);
-            return "获取解释失败: " + e.getMessage();
-        } finally {
-            // 关闭连接和读取器
-            if (reader != null) {
-                try {
-                    reader.close();
-                } catch (IOException e) {
-                    Log.e(TAG, "关闭读取器失败: " + e.getMessage(), e);
-                }
-            }
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
-    }
-    
-    /**
-     * 使用备用API获取单词解释
-     * 如果主API失败，可以调用此方法
-     * @param word 要查询的单词
-     * @return 单词解释
-     */
-    private String fetchWordDefinitionBackup(String word) {
-        HttpURLConnection connection = null;
-        BufferedReader reader = null;
-        StringBuilder result = new StringBuilder();
-        
-        try {
-            // 使用备用API - 有道智云
-            String appKey = "0afe1878d5b9a5c1"; // 这是示例appKey，实际使用需要注册获取
-            String salt = String.valueOf(System.currentTimeMillis());
-            String from = "auto";
-            String to = "zh-CHS";
-            
-            // 构建签名 - 实际使用需要正确的appKey和appSecret
-            // String sign = MD5Util.md5(appKey + word + salt + appSecret);
-            
-            // 构建URL
-            URL url = new URL("https://fanyi.youdao.com/openapi.do?keyfrom=YouDaoCV&key=659600698&type=data&doctype=json&version=1.1&q=" + java.net.URLEncoder.encode(word, "UTF-8"));
-            
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(5000);
-            
-            // 设置请求头
-            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
-            
-            // 获取响应状态码
-            int responseCode = connection.getResponseCode();
-            
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                // 读取响应内容
-                reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), "UTF-8"));
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    result.append(line);
-                }
-                
-                // 解析备用API的JSON响应
-                return parseBackupResponse(result.toString(), word);
-            } else {
-                return "备用API请求失败 (错误码: " + responseCode + ")";
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "备用API获取单词解释失败: " + e.getMessage(), e);
-            return "备用API获取解释失败: " + e.getMessage();
-        } finally {
-            // 关闭连接和读取器
-            if (reader != null) {
-                try {
-                    reader.close();
-                } catch (IOException e) {
-                    Log.e(TAG, "关闭读取器失败: " + e.getMessage(), e);
-                }
-            }
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
-    }
-    
-    /**
-     * 解析备用API的JSON响应
-     */
-    private String parseBackupResponse(String jsonResponse, String originalWord) {
-        try {
-            StringBuilder definition = new StringBuilder();
-            
-            // 将单词首字母大写
-            String capitalizedWord = capitalizeFirstLetter(originalWord);
-            
-            // 添加查询单词和音标在同一行
-            definition.append("【").append(capitalizedWord).append("】 ");
-            
-            // 提取音标
-            boolean hasPhonetic = false;
-            
-            if (jsonResponse.contains("\"phonetic\"")) {
-                int phoneticIndex = jsonResponse.indexOf("\"phonetic\"");
-                if (phoneticIndex > 0) {
-                    int phoneticStart = jsonResponse.indexOf("\"", phoneticIndex + 11) + 1;
-                    int phoneticEnd = jsonResponse.indexOf("\"", phoneticStart);
-                    if (phoneticStart > 0 && phoneticEnd > phoneticStart) {
-                        String phonetic = jsonResponse.substring(phoneticStart, phoneticEnd);
-                        if (!phonetic.isEmpty()) {
-                            definition.append("音标 [").append(phonetic).append("]");
-                            hasPhonetic = true;
-                        }
-                    }
-                }
-            }
-            
-            // 提取美式发音音标
-            if (!hasPhonetic && jsonResponse.contains("\"us-phonetic\"")) {
-                int usPhoneticIndex = jsonResponse.indexOf("\"us-phonetic\"");
-                if (usPhoneticIndex > 0) {
-                    int usPhoneticStart = jsonResponse.indexOf("\"", usPhoneticIndex + 14) + 1;
-                    int usPhoneticEnd = jsonResponse.indexOf("\"", usPhoneticStart);
-                    if (usPhoneticStart > 0 && usPhoneticEnd > usPhoneticStart) {
-                        String usPhonetic = jsonResponse.substring(usPhoneticStart, usPhoneticEnd);
-                        if (!usPhonetic.isEmpty()) {
-                            definition.append("美 [").append(usPhonetic).append("]");
-                            hasPhonetic = true;
-                        }
-                    }
-                }
-            }
-            
-            // 提取英式发音音标
-            if (!hasPhonetic && jsonResponse.contains("\"uk-phonetic\"")) {
-                int ukPhoneticIndex = jsonResponse.indexOf("\"uk-phonetic\"");
-                if (ukPhoneticIndex > 0) {
-                    int ukPhoneticStart = jsonResponse.indexOf("\"", ukPhoneticIndex + 14) + 1;
-                    int ukPhoneticEnd = jsonResponse.indexOf("\"", ukPhoneticStart);
-                    if (ukPhoneticStart > 0 && ukPhoneticEnd > ukPhoneticStart) {
-                        String ukPhonetic = jsonResponse.substring(ukPhoneticStart, ukPhoneticEnd);
-                        if (!ukPhonetic.isEmpty()) {
-                            definition.append("英 [").append(ukPhonetic).append("]");
-                            hasPhonetic = true;
-                        }
-                    }
-                }
-            }
-            
-            // 添加换行
-            definition.append("\n\n");
-            
-            // 添加查询单词
-            if (jsonResponse.contains("\"translation\"")) {
-                int translationIndex = jsonResponse.indexOf("\"translation\"");
-                int translationStart = jsonResponse.indexOf("[", translationIndex);
-                int translationEnd = jsonResponse.indexOf("]", translationStart);
-                
-                if (translationStart > 0 && translationEnd > translationStart) {
-                    String translation = jsonResponse.substring(translationStart + 1, translationEnd);
-                    translation = translation.replace("\"", "");
-                    definition.append("翻译: ").append(translation).append("\n\n");
-                }
-            }
-            
-            // 解析基本释义
-            if (jsonResponse.contains("\"basic\"")) {
-                int basicIndex = jsonResponse.indexOf("\"basic\"");
-                int explainsIndex = jsonResponse.indexOf("\"explains\"", basicIndex);
-                
-                if (explainsIndex > 0) {
-                    int explainsStart = jsonResponse.indexOf("[", explainsIndex);
-                    int explainsEnd = jsonResponse.indexOf("]", explainsStart);
-                    
-                    if (explainsStart > 0 && explainsEnd > explainsStart) {
-                        String explains = jsonResponse.substring(explainsStart + 1, explainsEnd);
-                        String[] explanations = explains.split("\",\"");
-                        
-                        definition.append("【基本释义】\n");
-                        for (String explanation : explanations) {
-                            explanation = explanation.replace("\"", "");
-                            definition.append("• ").append(explanation).append("\n");
-                        }
-                        definition.append("\n");
-                    }
-                }
-            }
-            
-            return definition.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "解析备用API响应失败: " + e.getMessage(), e);
-            return "解析备用API响应失败: " + e.getMessage();
-        }
-    }
-    
-    /**
-     * 解析有道词典API的JSON响应
-     * @param jsonResponse JSON响应字符串
-     * @param originalWord 原始查询的单词
-     * @return 格式化的单词解释
-     */
-    private String parseYoudaoResponse(String jsonResponse, String originalWord) {
-        try {
-            StringBuilder definition = new StringBuilder();
-            
-            // 将单词首字母大写
-            String capitalizedWord = capitalizeFirstLetter(originalWord);
-            
-            // 添加查询单词和音标在同一行
-            definition.append("【").append(capitalizedWord).append("】 ");
-            
-            // 提取音标
-            boolean hasPhonetic = false;
-            
-            if (jsonResponse.contains("\"uk-phonetic\"")) {
-                int ukPhoneticIndex = jsonResponse.indexOf("\"uk-phonetic\"");
-                if (ukPhoneticIndex > 0) {
-                    int ukPhoneticStart = jsonResponse.indexOf("\"", ukPhoneticIndex + 14) + 1;
-                    int ukPhoneticEnd = jsonResponse.indexOf("\"", ukPhoneticStart);
-                    if (ukPhoneticStart > 0 && ukPhoneticEnd > ukPhoneticStart) {
-                        String ukPhonetic = jsonResponse.substring(ukPhoneticStart, ukPhoneticEnd);
-                        definition.append("英 [").append(ukPhonetic).append("]  ");
-                        hasPhonetic = true;
-                    }
-                }
-            }
-            
-            if (jsonResponse.contains("\"us-phonetic\"")) {
-                int usPhoneticIndex = jsonResponse.indexOf("\"us-phonetic\"");
-                if (usPhoneticIndex > 0) {
-                    int usPhoneticStart = jsonResponse.indexOf("\"", usPhoneticIndex + 14) + 1;
-                    int usPhoneticEnd = jsonResponse.indexOf("\"", usPhoneticStart);
-                    if (usPhoneticStart > 0 && usPhoneticEnd > usPhoneticStart) {
-                        String usPhonetic = jsonResponse.substring(usPhoneticStart, usPhoneticEnd);
-                        definition.append("美 [").append(usPhonetic).append("]");
-                        hasPhonetic = true;
-                    }
-                }
-            }
-            
-            // 如果没有找到音标，尝试查找备用音标字段
-            if (!hasPhonetic && jsonResponse.contains("\"phonetic\"")) {
-                int phoneticIndex = jsonResponse.indexOf("\"phonetic\"");
-                if (phoneticIndex > 0) {
-                    int phoneticStart = jsonResponse.indexOf("\"", phoneticIndex + 11) + 1;
-                    int phoneticEnd = jsonResponse.indexOf("\"", phoneticStart);
-                    if (phoneticStart > 0 && phoneticEnd > phoneticStart) {
-                        String phonetic = jsonResponse.substring(phoneticStart, phoneticEnd);
-                        definition.append("音标 [").append(phonetic).append("]");
-                        hasPhonetic = true;
-                    }
-                }
-            }
-            
-            // 添加换行
-            definition.append("\n\n");
-            
-            // 提取基本释义
-            if (jsonResponse.contains("\"ec\"")) {
-                definition.append("【基本释义】\n");
-                int ecIndex = jsonResponse.indexOf("\"ec\"");
-                int wordIndex = jsonResponse.indexOf("\"word\"", ecIndex);
-                
-                if (wordIndex > 0) {
-                    int trsIndex = jsonResponse.indexOf("\"trs\"", wordIndex);
-                    if (trsIndex > 0) {
-                        int trsStart = jsonResponse.indexOf("[", trsIndex);
-                        int trsEnd = findMatchingBracket(jsonResponse, trsStart);
-                        
-                        if (trsStart > 0 && trsEnd > trsStart) {
-                            String trsJson = jsonResponse.substring(trsStart, trsEnd + 1);
-                            
-                            // 解析翻译数组
-                            int pos = 0;
-                            int count = 0;
-                            while (pos < trsJson.length()) { // 不限制释义数量
-                                int trIndex = trsJson.indexOf("\"tr\"", pos);
-                                if (trIndex < 0) break;
-                                
-                                int lIndex = trsJson.indexOf("\"l\"", trIndex);
-                                if (lIndex < 0) break;
-                                
-                                int iIndex = trsJson.indexOf("\"i\"", lIndex);
-                                if (iIndex < 0) break;
-                                
-                                int iValueStart = trsJson.indexOf("\"", iIndex + 4) + 1;
-                                int iValueEnd = trsJson.indexOf("\"", iValueStart);
-                                
-                                if (iValueStart > 0 && iValueEnd > iValueStart) {
-                                    String meaning = trsJson.substring(iValueStart, iValueEnd);
-                                    definition.append("• ").append(meaning).append("\n");
-                                    count++;
-                                }
-                                
-                                pos = iValueEnd + 1;
-                            }
-                            definition.append("\n");
-                        }
-                    }
-                }
-            }
-            
-            // 如果没有找到任何释义
-            if (definition.length() <= capitalizedWord.length() + 5) { // 只有单词标题
-                return "未找到 \"" + capitalizedWord + "\" 的释义";
-            }
-            
-            return definition.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "解析有道词典响应失败: " + e.getMessage(), e);
-            return "解析释义失败: " + e.getMessage();
-        }
-    }
-    
-    /**
-     * 查找JSON中匹配的括号位置
-     */
-    private int findMatchingBracket(String json, int startPos) {
-        if (json.charAt(startPos) != '[') return -1;
-        
-        int count = 1;
-        for (int i = startPos + 1; i < json.length(); i++) {
-            if (json.charAt(i) == '[') count++;
-            else if (json.charAt(i) == ']') {
-                count--;
-                if (count == 0) return i;
-            }
-        }
-        return -1;
-    }
-    
-    /**
-     * 创建选词覆盖层
-     */
-    private void createSelectionOverlay() {
-        // 创建滚动视图容器
-        mSelectionOverlay = new FrameLayout(mContext);
-        mSelectionOverlay.setBackgroundColor(Color.argb(128, 0, 0, 0));  // 背景透明度改为50% (128/255)
-        
-        // 创建文本视图
-        mTextView = new TextView(mContext);
-        mTextView.setTextColor(Color.WHITE);
-        mTextView.setBackgroundColor(Color.TRANSPARENT); // 背景由容器设置
-        mTextView.setTextSize(22);  // 字体大小放大20%，从18增加到22
-        mTextView.setPadding(30, 15, 30, 15);  // 减小内边距
-        
-        // 设置多行显示和自动换行
-        mTextView.setSingleLine(false);
-        mTextView.setMaxLines(15); // 最大行数仍然保留，但现在可以滚动查看
-        mTextView.setEllipsize(null);
-        mTextView.setHorizontallyScrolling(false);
-        
-        // 设置文本对齐方式
-        mTextView.setGravity(android.view.Gravity.CENTER);  // 将文本对齐方式改为居中
-        
-        // 设置所有行的行距为0.9
-        mTextView.setLineSpacing(0, 0.9f);
-        
-        // 将文本视图添加到滚动容器中
-        mSelectionOverlay.addView(mTextView, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT));
-        
-        // 设置滚动容器的布局参数
-        FrameLayout.LayoutParams containerParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,  // 宽度改为WRAP_CONTENT，根据内容自动调整
-                FrameLayout.LayoutParams.WRAP_CONTENT
-        );
-        containerParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL; // 放置在顶部中央
-        containerParams.topMargin = 0;  // 顶部距离为0，置顶显示
-        
-        // 计算屏幕宽度
-        int screenWidth = mContext.getResources().getDisplayMetrics().widthPixels;
-        
-        // 设置最小宽度和最大宽度限制
-        int minWidth = (int)(screenWidth * 0.5f);  // 最小为屏幕宽度的50%
-        int maxWidth = (int)(screenWidth * 0.9f);  // 最大为屏幕宽度的90%
-        
-        // 设置宽度约束
-        mTextView.setMinWidth(minWidth);
-        mTextView.setMaxWidth(maxWidth);
-        
-        // 计算12行文本的高度（考虑到字体大小增加到22）
-        int lineHeight = (int) (mTextView.getTextSize() * 0.9f); // 估计行高（考虑行距0.9）
-        int paddingVertical = mTextView.getPaddingTop() + mTextView.getPaddingBottom();
-        containerParams.height = lineHeight * 12 + paddingVertical; // 设置高度为12行文本高度（从9行增加到12行）
-        
-        mSelectionOverlay.setLayoutParams(containerParams);
-        
-        // 添加边框和圆角
-        try {
-            GradientDrawable border = new GradientDrawable();
-            border.setColor(Color.argb(128, 0, 0, 0));  // 背景透明度改为50%
-            border.setCornerRadius(20); // 圆角半径
-            border.setStroke(2, Color.argb(200, 100, 100, 100)); // 边框宽度和颜色
-            mSelectionOverlay.setBackground(border);
-        } catch (Exception e) {
-            Log.w(TAG, "设置边框样式失败: " + e.getMessage());
-        }
-        
-        // 默认隐藏
-        mSelectionOverlay.setVisibility(View.GONE);
-        
-        // 重置滚动位置
-        mScrollPosition = 0;
     }
     
     /**
@@ -1822,5 +1831,202 @@ public class SubtitleWordSelectionController {
         }
         
         return word.substring(0, 1).toUpperCase() + word.substring(1);
+    }
+    
+    /**
+     * 查找JSON中匹配的括号位置
+     */
+    private int findMatchingBracket(String json, int startPos) {
+        if (json.charAt(startPos) != '[') return -1;
+        
+        int count = 1;
+        for (int i = startPos + 1; i < json.length(); i++) {
+            if (json.charAt(i) == '[') count++;
+            else if (json.charAt(i) == ']') {
+                count--;
+                if (count == 0) return i;
+            }
+        }
+        return -1;
+    }
+    
+    /**
+     * 创建选词覆盖层
+     */
+    private void createSelectionOverlay() {
+        // 创建滚动视图容器
+        mSelectionOverlay = new FrameLayout(mContext);
+        // 使用半透明深灰色背景
+        mSelectionOverlay.setBackgroundColor(Color.argb(178, 20, 20, 20));  // 背景透明度约70%
+        
+        // 创建文本视图
+        mTextView = new TextView(mContext);
+        mTextView.setTextColor(Color.WHITE);
+        mTextView.setBackgroundColor(Color.TRANSPARENT); // 背景由容器设置
+        mTextView.setTextSize(22);  // 字体大小
+        mTextView.setPadding(40, 15, 40, 15);  // 减小顶部和底部内边距
+        
+        // 设置多行显示和自动换行
+        mTextView.setSingleLine(false);
+        mTextView.setMaxLines(15); // 最大行数
+        mTextView.setEllipsize(null);
+        mTextView.setHorizontallyScrolling(false);
+        
+        // 设置文本对齐方式为居中
+        mTextView.setGravity(android.view.Gravity.CENTER);  // 设置为居中对齐
+        
+        // 设置所有行的行距
+        mTextView.setLineSpacing(10, 1.1f);
+        
+        // 将文本视图添加到滚动容器中
+        mSelectionOverlay.addView(mTextView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT));
+        
+        // 设置滚动容器的布局参数
+        FrameLayout.LayoutParams containerParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,  // 宽度根据内容自动调整
+                FrameLayout.LayoutParams.WRAP_CONTENT
+        );
+        containerParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL; // 放置在顶部中央
+        containerParams.topMargin = 50;  // 增加顶部距离，避免遮挡字幕
+        
+        // 计算屏幕宽度
+        int screenWidth = mContext.getResources().getDisplayMetrics().widthPixels;
+        
+        // 设置最小宽度和最大宽度限制
+        int minWidth = (int)(screenWidth * 0.55f);  // 最小为屏幕宽度的55%
+        int maxWidth = (int)(screenWidth * 0.85f);  // 最大为屏幕宽度的85%
+        
+        // 设置宽度约束
+        mTextView.setMinWidth(minWidth);
+        mTextView.setMaxWidth(maxWidth);
+        
+        // 计算13行文本的高度
+        int lineHeight = (int) (mTextView.getTextSize() * 1.1f); // 估计行高
+        int paddingVertical = mTextView.getPaddingTop() + mTextView.getPaddingBottom();
+        containerParams.height = lineHeight * 13 + paddingVertical; // 设置高度为13行文本高度
+        
+        mSelectionOverlay.setLayoutParams(containerParams);
+        
+        // 添加边框和圆角
+        try {
+            GradientDrawable border = new GradientDrawable();
+            
+            // 创建渐变背景，底部稍微深一些
+            border.setColors(new int[] {
+                    Color.argb(178, 30, 30, 30),   // 顶部颜色
+                    Color.argb(178, 15, 15, 15)    // 底部颜色
+            });
+            border.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+            
+            // 设置圆角和边框
+            border.setCornerRadius(25); // 增大圆角半径
+            border.setStroke(2, Color.argb(200, 120, 120, 120)); // 边框宽度和颜色
+            
+            // 添加轻微的阴影效果
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                mSelectionOverlay.setOutlineAmbientShadowColor(Color.BLACK);
+                mSelectionOverlay.setOutlineSpotShadowColor(Color.BLACK);
+                mSelectionOverlay.setElevation(10);
+            }
+            
+            mSelectionOverlay.setBackground(border);
+        } catch (Exception e) {
+            Log.w(TAG, "设置边框样式失败: " + e.getMessage());
+        }
+        
+        // 默认隐藏
+        mSelectionOverlay.setVisibility(View.GONE);
+        
+        // 重置滚动位置
+        mScrollPosition = 0;
+    }
+    
+    /**
+     * 过滤响应中的思考过程和think标签
+     * @param text 原始响应文本
+     * @return 过滤后的文本
+     */
+    private String filterThinkingContent(String text) {
+        if (text == null) {
+            return "";
+        }
+        
+        // 移除所有尖括号及其中间的内容（通用规则，放在最前面）
+        String filtered = text.replaceAll("<[^>]*>", "");
+        
+        // 移除XML风格的<think>...</think>标签及其内容
+        filtered = filtered.replaceAll("(?i)<think>.*?</think>", "");
+        
+        // 移除<think 开头直到 think>结束的内容，这种格式可能会有属性
+        filtered = filtered.replaceAll("(?i)<think\\s+[^>]*>.*?</think>", "");
+        
+        // 移除单独的<think>或</think>标签
+        filtered = filtered.replaceAll("(?i)</?think[^>]*>", "");
+        
+        // 移除以"let me think"或"thinking"开头的段落
+        filtered = filtered.replaceAll("(?i)(?m)^\\s*(?:let me think|thinking).*$", "");
+        
+        // 移除常见思考模式
+        filtered = filtered.replaceAll("(?i)I need to consider|Let's analyze|Let me consider", "");
+        
+        // 移除含有"思考"或"思索"的句子
+        filtered = filtered.replaceAll("[^。]*[思考|思索][^。]*。", "");
+        
+        // 移除"我来分析一下"和类似表达
+        filtered = filtered.replaceAll("我来分析一下|我们来看看|让我思考", "");
+        
+        // 移除其他常见的思考过程标记
+        filtered = filtered.replaceAll("首先[，,]我|首先[，,]让|第一步|第二步|第三步", "");
+        
+        // 移除英文括号中的思考内容 (例如: (let me analyze this))
+        filtered = filtered.replaceAll("\\([^)]*(?:analyze|think|consider)[^)]*\\)", "");
+        
+        // 替换多个连续换行为最多两个换行符
+        filtered = filtered.replaceAll("\n{3,}", "\n\n");
+        
+        // 移除空行开头
+        filtered = filtered.replaceAll("^\\s*\n", "");
+        
+        return filtered.trim();
+    }
+    
+    /**
+     * 从文本中移除所有音标和发音相关内容
+     * @param text 原始文本
+     * @return 移除音标后的文本
+     */
+    private String removePhonetics(String text) {
+        if (text == null) {
+            return "";
+        }
+        
+        // 移除所有尖括号及其中间内容
+        String result = text.replaceAll("<[^>]*>", "");
+        
+        // 移除美式音标相关行
+        result = result.replaceAll("(?m)^.*(?:美音|美式发音|美式音标|英音|英式发音|音标)[:：]\\s*\\[.*\\].*$", "");
+        
+        // 移除独立的音标 [ˈsʌmθɪŋ]
+        result = result.replaceAll("\\[[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "");
+        
+        // 移除包含明显音标符号的方括号内容
+        result = result.replaceAll("\\[[^\\]]*[ɑɔəɪʊʌæɜːɒŋθðʃʒɚɝˈˌ][^\\]]*\\]", "");
+        
+        // 移除【发音】部分和相似内容
+        result = result.replaceAll("【发音】[^【】]+", "");
+        result = result.replaceAll("\\*\\*发音\\*\\*[^*]+\\*\\*", "");
+        
+        // 移除"发音："后面的内容，直到行尾
+        result = result.replaceAll("发音：.*?(?:\\n|$)", "\n");
+        
+        // 移除空行
+        result = result.replaceAll("(?m)^\\s*$\\n", "");
+        
+        // 合并多个连续空行
+        result = result.replaceAll("\n{3,}", "\n\n");
+        
+        return result.trim();
     }
 } 
