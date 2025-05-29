@@ -63,6 +63,8 @@ public class SubtitleWordSelectionController {
     private static final int SCROLL_STEP = 50;
     
     private final Handler mHandler = new Handler();
+    private boolean mIsInitialized = false; // 标记是否已完成初始化
+    private boolean mPendingActivation = false; // 标记是否有待激活的选词请求
     
     public SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
         mContext = context;
@@ -72,13 +74,57 @@ public class SubtitleWordSelectionController {
         
         // 创建选词覆盖层
         createSelectionOverlay();
+        
+        // 延迟初始化，确保所有组件都已准备好
+        mHandler.postDelayed(this::initializeController, 1000);
+    }
+    
+    /**
+     * 初始化控制器
+     */
+    private void initializeController() {
+        // 尝试获取当前字幕
+        if (mSubtitleView != null) {
+            List<Cue> currentCues = mSubtitleView.getCues();
+            if (currentCues != null && !currentCues.isEmpty()) {
+                setCurrentSubtitleText(currentCues);
+            }
+        }
+        
+        mIsInitialized = true;
+        Log.d(TAG, "字幕选词控制器初始化完成");
+        
+        // 如果有待激活的请求，现在激活它
+        if (mPendingActivation) {
+            mHandler.post(this::enterWordSelectionMode);
+            mPendingActivation = false;
+        }
     }
     
     /**
      * 进入选词模式
      */
     public void enterWordSelectionMode() {
-        if (mSubtitleView == null || !hasSubtitleText()) {
+        // 如果控制器尚未初始化，则延迟激活
+        if (!mIsInitialized) {
+            Log.d(TAG, "控制器尚未初始化，延迟激活选词模式");
+            mPendingActivation = true;
+            return;
+        }
+        
+        // 确保字幕文本存在
+        if (mSubtitleView == null) {
+            Log.d(TAG, "无法进入选词模式：字幕视图为空");
+            MessageHelpers.showMessage(mContext, R.string.no_subtitle_available);
+            return;
+        }
+        
+        // 尝试获取最新字幕
+        refreshCurrentSubtitle();
+        
+        // 验证字幕文本
+        if (!hasSubtitleText()) {
+            Log.d(TAG, "无法进入选词模式：没有字幕文本");
             MessageHelpers.showMessage(mContext, R.string.no_subtitle_available);
             return;
         }
@@ -100,24 +146,22 @@ public class SubtitleWordSelectionController {
         if (mWords.length == 0) {
             Log.d(TAG, "没有找到可选择的单词，尝试再次分析字幕");
             // 再次尝试提取字幕文本
-            List<Cue> currentCues = mSubtitleView.getCues();
-            if (currentCues != null && !currentCues.isEmpty()) {
-                setCurrentSubtitleText(currentCues);
-                // 再次尝试分割单词
-                splitSubtitleIntoWords();
-            }
+            refreshCurrentSubtitle();
+            // 再次尝试分割单词
+            splitSubtitleIntoWords();
             
             // 如果仍然没有单词，则显示消息并退出选词模式
             if (mWords.length == 0) {
+                Log.d(TAG, "仍然没有找到可选择的单词，退出选词模式");
                 MessageHelpers.showMessage(mContext, R.string.no_subtitle_available);
                 mIsWordSelectionMode = false;
-                return;
+            return;
             }
         }
         
         // 确保当前选中的单词索引有效
         if (mCurrentWordIndex >= mWords.length) {
-            mCurrentWordIndex = 0;
+        mCurrentWordIndex = 0;
         }
         
         // 高亮显示第一个单词（但不显示覆盖层）
@@ -128,52 +172,48 @@ public class SubtitleWordSelectionController {
     }
     
     /**
-     * 退出选词模式
+     * 刷新当前字幕文本
      */
-    public void exitWordSelectionMode() {
-        if (!mIsWordSelectionMode) {
-            return;
-        }
-        
-        // 隐藏选词覆盖层
-        hideSelectionOverlay();
-        
-        // 清除字幕中的高亮显示
-        clearSubtitleHighlight();
-        
-        // 重置选择的单词
-        mCurrentWordIndex = 0;
-        mWords = new String[0];
-        mWordPositions = new int[0];
-        
-        // 退出选词模式
-        mIsWordSelectionMode = false;
-        mIsShowingDefinition = false;
-        
-        // 强制刷新字幕视图，确保高亮完全消失
-        refreshSubtitleView();
-        
-        // 恢复播放
-        PlaybackView view = mPlaybackPresenter.getView();
-        if (view != null) {
-            view.setPlayWhenReady(true);
-        }
-    }
-    
-    /**
-     * 强制刷新字幕视图
-     */
-    private void refreshSubtitleView() {
+    private void refreshCurrentSubtitle() {
         if (mSubtitleView != null) {
-            try {
-                // 反射获取字幕视图的方法来刷新显示
-                java.lang.reflect.Method invalidateMethod = View.class.getDeclaredMethod("invalidate");
-                invalidateMethod.setAccessible(true);
-                invalidateMethod.invoke(mSubtitleView);
+            List<Cue> currentCues = mSubtitleView.getCues();
+            if (currentCues != null && !currentCues.isEmpty()) {
+                Log.d(TAG, "刷新当前字幕文本，Cue数量: " + currentCues.size());
+                setCurrentSubtitleText(currentCues);
+            } else {
+                Log.d(TAG, "刷新字幕失败：当前没有字幕Cue");
                 
-                Log.d(TAG, "已强制刷新字幕视图");
+                // 尝试通过反射获取字幕内容
+                try {
+                    // 通过反射获取 SubtitleView 的内部实现
+                    Field paintersField = mSubtitleView.getClass().getDeclaredField("painters");
+                    paintersField.setAccessible(true);
+                    @SuppressWarnings("unchecked")
+                    List<Object> painters = (List<Object>) paintersField.get(mSubtitleView);
+                    
+                    if (painters != null && !painters.isEmpty()) {
+                        StringBuilder subtitleText = new StringBuilder();
+                        for (Object painter : painters) {
+                            Field textField = painter.getClass().getDeclaredField("text");
+                            textField.setAccessible(true);
+                            CharSequence text = (CharSequence) textField.get(painter);
+                            
+                            if (text != null && text.length() > 0) {
+                                if (subtitleText.length() > 0) {
+                                    subtitleText.append(" ");
+                                }
+                                subtitleText.append(text);
+                            }
+                        }
+                        
+                        if (subtitleText.length() > 0) {
+                            Log.d(TAG, "通过反射获取到字幕文本: " + subtitleText);
+                            mCurrentSubtitleText = subtitleText.toString();
+                        }
+                    }
             } catch (Exception e) {
-                Log.e(TAG, "刷新字幕视图失败: " + e.getMessage(), e);
+                    Log.e(TAG, "通过反射获取字幕文本失败: " + e.getMessage(), e);
+                }
             }
         }
     }
@@ -188,7 +228,14 @@ public class SubtitleWordSelectionController {
             Log.d(TAG, "收到按键: " + event.getKeyCode());
         }
         
+        // 如果控制器尚未初始化，延迟处理按键事件
+        if (!mIsInitialized) {
+            Log.d(TAG, "控制器尚未初始化，忽略按键事件");
+            return false;
+        }
+        
         if (!mIsWordSelectionMode) {
+            // 如果不在选词模式，不处理按键
             return false;
         }
         
@@ -196,30 +243,32 @@ public class SubtitleWordSelectionController {
             return true; // 消费所有按键抬起事件
         }
         
-        // 确保单词列表不为空且当前索引有效
+        // 尝试刷新字幕和单词列表，确保数据是最新的
+        if (mWords.length == 0 || (mCurrentWordIndex >= mWords.length)) {
+            Log.d(TAG, "单词列表为空或索引无效，尝试刷新");
+            refreshCurrentSubtitle();
+            splitSubtitleIntoWords();
+        }
+        
+        // 再次检查单词列表
         if (mWords.length == 0) {
-            Log.d(TAG, "单词列表为空，尝试重新分析字幕");
-            // 尝试重新分析当前字幕
-            List<Cue> currentCues = mSubtitleView.getCues();
-            if (currentCues != null && !currentCues.isEmpty()) {
-                setCurrentSubtitleText(currentCues);
-                splitSubtitleIntoWords();
-            }
-            
-            // 如果仍然没有单词，不处理按键
-            if (mWords.length == 0) {
-                Log.w(TAG, "无法处理按键：单词列表为空");
-                return false;
-            }
+            Log.w(TAG, "无法处理按键：单词列表为空");
+            return false;
         }
         
         // 确保当前索引有效
         if (mCurrentWordIndex >= mWords.length) {
+            Log.d(TAG, "重置单词索引到0，当前值 " + mCurrentWordIndex + " 超出范围 " + mWords.length);
             mCurrentWordIndex = 0;
         }
         
         // 检查工具栏是否显示
         boolean isControlsVisible = isControlsOverlayVisible();
+        
+        // 记录当前选中的单词和状态，便于调试
+        Log.d(TAG, "处理按键前状态：当前单词 = " + (mCurrentWordIndex < mWords.length ? mWords[mCurrentWordIndex] : "无效") + 
+              ", 显示解释 = " + mIsShowingDefinition + 
+              ", 工具栏可见 = " + isControlsVisible);
         
         switch (event.getKeyCode()) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
@@ -2182,7 +2231,24 @@ public class SubtitleWordSelectionController {
         String[] lines = text.split("\n");
         StringBuilder cleanedTextBuilder = new StringBuilder();
         
+        // 标记是否在音标部分
+        boolean inPhoneticSection = false;
+        
         for (String line : lines) {
+            // 检查是否进入或退出音标部分
+            if (line.trim().matches("^\\s*【(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)】\\s*$")) {
+                inPhoneticSection = true;
+                continue; // 跳过此行
+            } else if (inPhoneticSection && line.trim().matches("^\\s*【.*】\\s*$")) {
+                // 如果在音标部分内，遇到其他【xxx】标题，说明音标部分结束
+                inPhoneticSection = false;
+            }
+            
+            // 如果在音标部分内，跳过此行
+            if (inPhoneticSection) {
+                continue;
+            }
+            
             // 跳过只包含音标的行
             if (isPhoneticOnlyLine(line)) {
                 continue;
@@ -2200,11 +2266,8 @@ public class SubtitleWordSelectionController {
         // 最终处理
         String cleanedText = cleanedTextBuilder.toString();
         
-        // 移除可能残留的音标标记，如"美音："后没有跟音标
-        cleanedText = cleanedText.replaceAll("(?:美音|美式发音|美式音标|英音|英式发音|英式音标|音标)[:：]\\s*(?=$|\\n)", "");
-        
-        // 移除"发音："等后面可能跟随的不包含在[]或//中的音标
-        cleanedText = cleanedText.replaceAll("(?:发音|读音|音标)[:：]\\s*[^\\n]*(?=$|\\n)", "");
+        // 移除"发音："等相关内容的整行
+        cleanedText = cleanedText.replaceAll("(?m)^\\s*(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?[^\\n]*$", "");
         
         // 移除空行
         cleanedText = cleanedText.replaceAll("(?m)^\\s*$\\n", "");
@@ -2214,14 +2277,44 @@ public class SubtitleWordSelectionController {
         
         // 检查是否删除了太多内容
         if (cleanedText.trim().isEmpty() && !originalText.trim().isEmpty()) {
-            // 如果删除了所有内容，则使用简单的方式只删除明显的音标
+            // 如果删除了所有内容，则使用简单的方式只删除明显的音标和音标说明
             return originalText
+                .replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\[[^\\]]+\\]", "")
+                .replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\/[^\\/]+\\/", "")
                 .replaceAll("\\[[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "")
                 .replaceAll("\\/[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\/", "")
+                .replace("*", "")
                 .trim();
         }
         
         return cleanedText.trim();
+    }
+    
+    /**
+     * 从一行文本中移除音标
+     * @param line 要处理的行
+     * @return 移除音标后的行
+     */
+    private String removePhoneticFromLine(String line) {
+        // 移除整个"音标为：[xxx]"或"美式音标为：[xxx]"的模式
+        String cleanedLine = line.replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\[[^\\]]+\\]", "");
+        
+        // 移除整个"音标为：/xxx/"或"美式音标为：/xxx/"的模式
+        cleanedLine = cleanedLine.replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\/[^\\/]+\\/", "");
+        
+        // 移除方括号音标
+        cleanedLine = cleanedLine.replaceAll("\\[[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "");
+        
+        // 移除反斜杠音标
+        cleanedLine = cleanedLine.replaceAll("\\/[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\/", "");
+        
+        // 移除可能的残留音标说明（如果只有说明没有跟随音标）
+        cleanedLine = cleanedLine.replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*$", "");
+        
+        // 移除所有星号
+        cleanedLine = cleanedLine.replace("*", "");
+        
+        return cleanedLine.trim();
     }
     
     /**
@@ -2243,17 +2336,22 @@ public class SubtitleWordSelectionController {
         }
         
         // 检查是否是"美音："等开头后面跟音标的行
-        if (trimmedLine.matches("^\\s*(?:美音|美式发音|美式音标|英音|英式发音|英式音标|音标)[:：]\\s*\\[[^\\]]+\\]\\s*$")) {
+        if (trimmedLine.matches("^\\s*(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\[[^\\]]+\\]\\s*$")) {
             return true;
         }
         
         // 检查是否是"美音："等开头后面跟反斜杠音标的行
-        if (trimmedLine.matches("^\\s*(?:美音|美式发音|美式音标|英音|英式发音|英式音标|音标)[:：]\\s*\\/[^\\/]+\\/\\s*$")) {
+        if (trimmedLine.matches("^\\s*(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\/[^\\/]+\\/\\s*$")) {
             return true;
         }
         
         // 检查是否是只包含"发音"或"音标"的行
-        if (trimmedLine.matches("^\\s*(?:发音|读音|音标)[:：]?\\s*$")) {
+        if (trimmedLine.matches("^\\s*(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*$")) {
+            return true;
+        }
+        
+        // 检查是否是发音部分的标题行（如"【发音】"）
+        if (trimmedLine.matches("^\\s*【(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)】\\s*$")) {
             return true;
         }
         
@@ -2261,20 +2359,53 @@ public class SubtitleWordSelectionController {
     }
     
     /**
-     * 从一行文本中移除音标
-     * @param line 要处理的行
-     * @return 移除音标后的行
+     * 退出选词模式
      */
-    private String removePhoneticFromLine(String line) {
-        // 移除方括号音标
-        String cleanedLine = line.replaceAll("\\[[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "");
+    public void exitWordSelectionMode() {
+        if (!mIsWordSelectionMode) {
+            return;
+        }
         
-        // 移除反斜杠音标
-        cleanedLine = cleanedLine.replaceAll("\\/[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\/", "");
+        // 隐藏选词覆盖层
+        hideSelectionOverlay();
         
-        // 移除美音、英音等标记后面的音标部分
-        cleanedLine = cleanedLine.replaceAll("(?:美音|美式发音|美式音标|英音|英式发音|英式音标|音标)[:：]\\s*(?:\\[[^\\]]+\\]|\\/[^\\/]+\\/)", "");
+        // 清除字幕中的高亮显示
+        clearSubtitleHighlight();
         
-        return cleanedLine.trim();
+        // 重置选择的单词
+        mCurrentWordIndex = 0;
+        mWords = new String[0];
+        mWordPositions = new int[0];
+        
+        // 退出选词模式
+        mIsWordSelectionMode = false;
+        mIsShowingDefinition = false;
+        
+        // 强制刷新字幕视图，确保高亮完全消失
+        refreshSubtitleView();
+        
+        // 恢复播放
+        PlaybackView view = mPlaybackPresenter.getView();
+        if (view != null) {
+            view.setPlayWhenReady(true);
+        }
+    }
+    
+    /**
+     * 强制刷新字幕视图
+     */
+    private void refreshSubtitleView() {
+        if (mSubtitleView != null) {
+            try {
+                // 反射获取字幕视图的方法来刷新显示
+                java.lang.reflect.Method invalidateMethod = View.class.getDeclaredMethod("invalidate");
+                invalidateMethod.setAccessible(true);
+                invalidateMethod.invoke(mSubtitleView);
+                
+                Log.d(TAG, "已强制刷新字幕视图");
+            } catch (Exception e) {
+                Log.e(TAG, "刷新字幕视图失败: " + e.getMessage(), e);
+            }
+        }
     }
 } 
