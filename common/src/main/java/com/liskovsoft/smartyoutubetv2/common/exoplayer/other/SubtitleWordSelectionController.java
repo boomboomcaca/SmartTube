@@ -65,6 +65,7 @@ public class SubtitleWordSelectionController {
     private final Handler mHandler = new Handler();
     private boolean mIsInitialized = false; // 标记是否已完成初始化
     private boolean mPendingActivation = false; // 标记是否有待激活的选词请求
+    private boolean mPendingFromStart = true; // 待激活的选词模式是否从第一个单词开始
     
     public SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
         mContext = context;
@@ -96,7 +97,7 @@ public class SubtitleWordSelectionController {
         
         // 如果有待激活的请求，现在激活它
         if (mPendingActivation) {
-            mHandler.post(this::enterWordSelectionMode);
+            mHandler.post(() -> enterWordSelectionMode(mPendingFromStart));
             mPendingActivation = false;
         }
     }
@@ -105,10 +106,19 @@ public class SubtitleWordSelectionController {
      * 进入选词模式
      */
     public void enterWordSelectionMode() {
+        enterWordSelectionMode(true); // 默认从第一个单词开始
+    }
+    
+    /**
+     * 进入选词模式
+     * @param fromStart 是否从第一个单词开始，false表示从最后一个单词开始
+     */
+    public void enterWordSelectionMode(boolean fromStart) {
         // 如果控制器尚未初始化，则延迟激活
         if (!mIsInitialized) {
             Log.d(TAG, "控制器尚未初始化，延迟激活选词模式");
             mPendingActivation = true;
+            mPendingFromStart = fromStart; // 保存起始位置参数
             return;
         }
         
@@ -159,12 +169,14 @@ public class SubtitleWordSelectionController {
             }
         }
         
-        // 确保当前选中的单词索引有效
-        if (mCurrentWordIndex >= mWords.length) {
-        mCurrentWordIndex = 0;
+        // 根据fromStart参数设置起始单词索引
+        if (fromStart) {
+            mCurrentWordIndex = 0; // 从第一个单词开始
+        } else {
+            mCurrentWordIndex = mWords.length - 1; // 从最后一个单词开始
         }
         
-        // 高亮显示第一个单词（但不显示覆盖层）
+        // 高亮显示当前单词
         highlightCurrentWord();
         
         // 记录日志

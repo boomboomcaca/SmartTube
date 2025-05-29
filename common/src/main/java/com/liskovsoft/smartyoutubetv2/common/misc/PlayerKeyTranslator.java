@@ -50,7 +50,7 @@ public class PlayerKeyTranslator extends GlobalKeyTranslator {
                 if (controller != null) {
                     // 如果没有在选词模式且有字幕，则进入选词模式
                     if (!controller.isInWordSelectionMode() && controller.hasSubtitleText()) {
-                        controller.enterWordSelectionMode();
+                        controller.enterWordSelectionMode(false); // 从最后一个单词开始
                     }
                 }
             }
@@ -66,7 +66,7 @@ public class PlayerKeyTranslator extends GlobalKeyTranslator {
                 if (controller != null) {
                     // 如果没有在选词模式且有字幕，则进入选词模式
                     if (!controller.isInWordSelectionMode() && controller.hasSubtitleText()) {
-                        controller.enterWordSelectionMode();
+                        controller.enterWordSelectionMode(true); // 从第一个单词开始
                     }
                 }
             }
@@ -234,7 +234,7 @@ public class PlayerKeyTranslator extends GlobalKeyTranslator {
             if (subtitleManager != null) {
                 SubtitleWordSelectionController controller = subtitleManager.getWordSelectionController();
                 if (controller != null && controller.hasSubtitleText()) {
-                    controller.enterWordSelectionMode();
+                    controller.enterWordSelectionMode(); // 使用默认参数（从第一个单词开始）
                 }
             }
         }
