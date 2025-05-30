@@ -858,14 +858,19 @@ public class SubtitleWordSelectionController {
             Log.d(TAG, "使用实际高亮单词: " + wordToTranslate + " 替代数组中单词: " + currentWordFromArray);
         }
         
+        // 获取当前单词的位置信息
+        int currentWordPosition = (mCurrentWordIndex < mWordPositions.length) ? mWordPositions[mCurrentWordIndex] : -1;
+        
         // 显示覆盖层和加载提示
         showDefinitionOverlay("正在查询中...\n请稍候");
         
         // 创建一个新线程来执行网络请求，避免阻塞主线程
         final String finalWordToTranslate = wordToTranslate;
+        final int finalWordPosition = currentWordPosition;
+        
         new Thread(() -> {
             // 使用Ollama本地服务查询词义
-            String definition = fetchOllamaDefinition(finalWordToTranslate, mCurrentSubtitleText);
+            String definition = fetchOllamaDefinition(finalWordToTranslate, mCurrentSubtitleText, finalWordPosition);
             
             // 记录日志
             Log.d(TAG, "翻译结果长度: " + (definition != null ? definition.length() : "null"));
@@ -926,9 +931,10 @@ public class SubtitleWordSelectionController {
      * 从本地Ollama服务获取单词解释
      * @param word 要查询的单词
      * @param context 单词所在的上下文
+     * @param wordPosition 单词在字幕中的位置
      * @return 单词解释
      */
-    private String fetchOllamaDefinition(String word, String context) {
+    private String fetchOllamaDefinition(String word, String context, int wordPosition) {
         HttpURLConnection connection = null;
         BufferedReader reader = null;
         StringBuilder result = new StringBuilder();
@@ -936,7 +942,44 @@ public class SubtitleWordSelectionController {
         try {
             // 准备查询参数
             String query = word.trim();
-            String prompt = "请解释一下\""+ query + "\"这个词在这句话\"" + context + "\"中的用法。请始终使用中文回答，保持简洁明了的解释。必须在单词后面提供美式英语的音标。严格禁止显示任何思考过程，直接给出干净的解释。";
+            
+            // 检查单词在字幕中是否重复出现
+            boolean isRepeated = false;
+            int occurrenceIndex = -1;
+            
+            if (wordPosition >= 0) {
+                // 计算这个单词是第几次出现的
+                List<Integer> occurrences = new ArrayList<>();
+                for (int i = 0; i < mWords.length; i++) {
+                    if (mWords[i].equalsIgnoreCase(query)) {
+                        occurrences.add(i);
+                    }
+                }
+                
+                if (occurrences.size() > 1) {  // 如果单词出现多次
+                    isRepeated = true;
+                    // 找出当前单词是第几次出现
+                    for (int i = 0; i < occurrences.size(); i++) {
+                        if (mWordPositions[occurrences.get(i)] == wordPosition) {
+                            occurrenceIndex = i + 1;  // 从1开始计数
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            String prompt;
+            if (isRepeated && occurrenceIndex > 0) {
+                // 如果是重复单词，在命令中明确指定位置
+                prompt = "请解释一下\"" + query + "\"这个词在这句话\"" + context + 
+                        "\"中的用法。这个单词在句子中出现了多次，我查询的是第" + occurrenceIndex + 
+                        "次出现的\"" + query + "\"（共出现" + mWords.length + "个单词中的第" + 
+                        (mCurrentWordIndex + 1) + "个）。请始终使用中文回答，保持简洁明了的解释。必须在单词后面提供美式英语的音标。严格禁止显示任何思考过程，直接给出干净的解释。";
+            } else {
+                // 常规命令
+                prompt = "请解释一下\"" + query + "\"这个词在这句话\"" + context + 
+                        "\"中的用法。请始终使用中文回答，保持简洁明了的解释。必须在单词后面提供美式英语的音标。严格禁止显示任何思考过程，直接给出干净的解释。";
+            }
             
             // 保存当前的AI命令，以便在需要时显示
             mCurrentAIPrompt = prompt;
@@ -944,6 +987,9 @@ public class SubtitleWordSelectionController {
             // 记录完整请求信息，方便调试
             Log.d(TAG, "Ollama查询词: " + query);
             Log.d(TAG, "Ollama查询上下文: " + context);
+            if (isRepeated) {
+                Log.d(TAG, "查询重复单词: 第" + occurrenceIndex + "次出现, 位置: " + wordPosition);
+            }
             
             // 构建请求JSON
             String requestJson = "{\"model\":\"qwen3:latest\",\"stream\":false,\"prompt\":\"" + 
