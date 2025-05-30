@@ -67,6 +67,9 @@ public class SubtitleWordSelectionController {
     private boolean mPendingActivation = false; // 标记是否有待激活的选词请求
     private boolean mPendingFromStart = true; // 待激活的选词模式是否从第一个单词开始
     
+    // 添加一个成员变量，用于存储当前的AI命令
+    private String mCurrentAIPrompt = "";
+    
     public SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
         mContext = context;
         mSubtitleView = subtitleView;
@@ -933,7 +936,10 @@ public class SubtitleWordSelectionController {
         try {
             // 准备查询参数
             String query = word.trim();
-            String prompt = "请解释一下这句话中这个词的用法<" + query + ">：<" + context + ">。请始终使用中文回答，保持简洁明了的解释。必须在单词后面提供美式英语的音标。严格禁止显示任何思考过程，直接给出干净的解释。";
+            String prompt = "请解释一下\""+ query + "\"这个词在这句话\"" + context + "\"中的用法。请始终使用中文回答，保持简洁明了的解释。必须在单词后面提供美式英语的音标。严格禁止显示任何思考过程，直接给出干净的解释。";
+            
+            // 保存当前的AI命令，以便在需要时显示
+            mCurrentAIPrompt = prompt;
             
             // 记录完整请求信息，方便调试
             Log.d(TAG, "Ollama查询词: " + query);
@@ -1230,9 +1236,9 @@ public class SubtitleWordSelectionController {
                     // 从解释内容中彻底移除所有音标和发音相关内容
                     String cleanResponse = removePhoneticFromText(response);
                     
-                    // 检查是否包含中文，如果不包含，添加提示
+                    // 检查是否包含中文，如果不包含，添加提示和发送给AI的命令
                     if (!containsChinese(cleanResponse)) {
-                        cleanResponse = "注意：AI没有使用中文回答。\n\n" + cleanResponse;
+                        cleanResponse = "注意：AI没有使用中文回答。\n\n发送给AI的命令：\n" + mCurrentAIPrompt + "\n\n" + cleanResponse;
                     }
                     
                     definition.append(cleanResponse);
