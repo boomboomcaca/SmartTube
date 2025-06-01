@@ -84,6 +84,10 @@ public class SubtitleWordSelectionController {
     // 添加一个成员变量，用于存储当前的AI命令
     private String mCurrentAIPrompt = "";
     
+    // 在类的成员变量区域添加重试计数器和最大重试次数
+    private int mRetryCount = 0;
+    private static final int MAX_RETRY_COUNT = 10;  // 最大重试次数，防止无限循环
+    
     public SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
         mContext = context;
         mSubtitleView = subtitleView;
@@ -902,6 +906,15 @@ public class SubtitleWordSelectionController {
      * 翻译当前单词
      */
     private void translateCurrentWord() {
+        // 重置重试计数器
+        mRetryCount = 0;
+        translateCurrentWordWithRetry();
+    }
+    
+    /**
+     * 带重试功能的翻译当前单词
+     */
+    private void translateCurrentWordWithRetry() {
         if (mWords.length == 0 || mCurrentWordIndex >= mWords.length) {
             return;
         }
@@ -925,15 +938,20 @@ public class SubtitleWordSelectionController {
         int currentWordPosition = (mCurrentWordIndex < mWordPositions.length) ? mWordPositions[mCurrentWordIndex] : -1;
         
         // 显示覆盖层和加载提示
-        showDefinitionOverlay("正在查询中...\n请稍候");
+        if (mRetryCount > 0) {
+            showDefinitionOverlay("正在重新查询中...\n第" + (mRetryCount + 1) + "次尝试，请稍候");
+        } else {
+            showDefinitionOverlay("正在查询中...\n请稍候");
+        }
         
         // 创建一个新线程来执行网络请求，避免阻塞主线程
         final String finalWordToTranslate = wordToTranslate;
         final int finalWordPosition = currentWordPosition;
+        final int currentRetryCount = mRetryCount;
         
         new Thread(() -> {
-            // 使用Ollama本地服务查询词义
-            String definition = fetchOllamaDefinition(finalWordToTranslate, mCurrentSubtitleText, finalWordPosition);
+            // 使用Ollama本地服务查询词义，传入重试次数
+            String definition = fetchOllamaDefinition(finalWordToTranslate, mCurrentSubtitleText, finalWordPosition, currentRetryCount);
             
             // 记录日志
             Log.d(TAG, "翻译结果长度: " + (definition != null ? definition.length() : "null"));
@@ -941,13 +959,36 @@ public class SubtitleWordSelectionController {
             // 最终结果
             final String finalDefinition = definition;
             
+            // 检查结果是否需要重试
+            boolean needRetry = (finalDefinition != null && 
+                    (finalDefinition.contains("注意：AI没有使用中文回答") || 
+                     (finalDefinition.contains("美式英语") && finalDefinition.length() < 100)) // 添加对美式英语的检查
+                    ) && mRetryCount < MAX_RETRY_COUNT;
+            
             // 回到主线程更新 UI
             if (mContext instanceof Activity) {
                 ((Activity) mContext).runOnUiThread(() -> {
                     // 检查是否仍然处于单词选择模式
                     if (mTextView != null && mIsWordSelectionMode) {
-                        // 只显示解释内容，不再重复添加单词名称
-                        showDefinitionOverlay(finalDefinition);
+                        if (needRetry) {
+                            // 增加重试计数
+                            mRetryCount++;
+                            Log.d(TAG, "需要重试，原因: " + 
+                                (finalDefinition.contains("注意：AI没有使用中文回答") ? "AI没有使用中文回答" : "返回内容仅包含'美式英语'") + 
+                                "，正在进行第" + mRetryCount + "次重试");
+                            // 延迟时间随重试次数增加，避免过快请求
+                            int delayMs = 500 + (mRetryCount * 100);
+                            mHandler.postDelayed(this::translateCurrentWordWithRetry, delayMs);
+                        } else {
+                            // 显示最终结果或达到最大重试次数的结果
+                            showDefinitionOverlay(finalDefinition);
+                            // 如果达到最大重试次数但仍未获得中文回答，记录日志
+                            if (mRetryCount >= MAX_RETRY_COUNT && 
+                                (finalDefinition.contains("注意：AI没有使用中文回答") || 
+                                 (finalDefinition.contains("美式英语") && finalDefinition.length() < 100))) {
+                                Log.w(TAG, "达到最大重试次数" + MAX_RETRY_COUNT + "，但仍未获得有效回答");
+                            }
+                        }
                     }
                 });
             }
@@ -995,9 +1036,10 @@ public class SubtitleWordSelectionController {
      * @param word 要查询的单词
      * @param context 单词所在的上下文
      * @param wordPosition 单词在字幕中的位置
+     * @param retryCount 当前重试次数
      * @return 单词解释
      */
-    private String fetchOllamaDefinition(String word, String context, int wordPosition) {
+    private String fetchOllamaDefinition(String word, String context, int wordPosition, int retryCount) {
         HttpURLConnection connection = null;
         BufferedReader reader = null;
         StringBuilder result = new StringBuilder();
@@ -1005,6 +1047,16 @@ public class SubtitleWordSelectionController {
         try {
             // 准备查询参数
             String query = word.trim();
+            String originalWord = query; // 保存原始单词，用于结果显示
+            
+            // 添加随机性以增加每次查询的差异
+            if (retryCount > 0) {
+                // 生成一个随机后缀，仅用于请求，不影响结果显示
+                long timestamp = System.currentTimeMillis();
+                int randomNum = (int)(timestamp % 1000);
+                query = query + " #" + randomNum;
+                Log.d(TAG, "第" + (retryCount + 1) + "次尝试，添加随机后缀: '" + query + "'");
+            }
             
             // 检查单词在字幕中是否重复出现
             boolean isRepeated = false;
@@ -1014,7 +1066,7 @@ public class SubtitleWordSelectionController {
                 // 计算这个单词是第几次出现的
                 List<Integer> occurrences = new ArrayList<>();
                 for (int i = 0; i < mWords.length; i++) {
-                    if (mWords[i].equalsIgnoreCase(query)) {
+                    if (mWords[i].equalsIgnoreCase(originalWord)) { // 使用原始单词匹配
                         occurrences.add(i);
                     }
                 }
@@ -1031,24 +1083,42 @@ public class SubtitleWordSelectionController {
                 }
             }
             
+            // 根据重试次数增加中文回答的强调
+            String chineseEmphasis;
+            if (retryCount == 0) {
+                chineseEmphasis = "请始终使用中文回答，保持简洁明了的解释。";
+            } else if (retryCount == 1) {
+                chineseEmphasis = "请注意：必须用中文回答！保持简洁明了的解释。";
+            } else if (retryCount == 2) {
+                chineseEmphasis = "警告：你必须完全用中文回答！不要使用英文或其他语言解释。";
+            } else if (retryCount == 3) {
+                chineseEmphasis = "严格警告：只能用中文回答，一个英文单词都不要出现在解释中！";
+            } else {
+                chineseEmphasis = "最后警告：我只接受纯中文回答！不要有任何英文单词出现在解释中（音标除外）！这是第" + (retryCount + 1) + "次尝试！";
+            }
+            
             String prompt;
             if (isRepeated && occurrenceIndex > 0) {
                 // 如果是重复单词，在命令中明确指定位置
-                prompt = "请解释一下\"" + query + "\"这个词在这句话\"" + context + 
+                prompt = "请解释一下\"" + originalWord + "\"这个词在这句话\"" + context + 
                         "\"中的用法。这个单词在句子中出现了多次，我查询的是第" + occurrenceIndex + 
-                        "次出现的\"" + query + "\"（共出现" + mWords.length + "个单词中的第" + 
-                        (mCurrentWordIndex + 1) + "个）。请始终使用中文回答，保持简洁明了的解释。必须在单词后面提供美式英语的音标。严格禁止显示任何思考过程，直接给出干净的解释。";
+                        "次出现的\"" + originalWord + "\"（共出现" + mWords.length + "个单词中的第" + 
+                        (mCurrentWordIndex + 1) + "个）。" + chineseEmphasis + "必须在单词后面提供美式英语的音标。严格禁止显示任何思考过程，直接给出干净的解释。";
             } else {
                 // 常规命令
-                prompt = "请解释一下\"" + query + "\"这个词在这句话\"" + context + 
-                        "\"中的用法。请始终使用中文回答，保持简洁明了的解释。必须在单词后面提供美式英语的音标。严格禁止显示任何思考过程，直接给出干净的解释。";
+                prompt = "请解释一下\"" + originalWord + "\"这个词在这句话\"" + context + 
+                        "\"中的用法。" + chineseEmphasis + "必须在单词后面提供美式英语的音标。严格禁止显示任何思考过程，直接给出干净的解释。";
             }
             
             // 保存当前的AI命令，以便在需要时显示
             mCurrentAIPrompt = prompt;
             
             // 记录完整请求信息，方便调试
-            Log.d(TAG, "Ollama查询词: " + query);
+            if (retryCount > 0) {
+                Log.d(TAG, "第" + (retryCount + 1) + "次尝试 Ollama查询词: " + query + " (原始单词: " + originalWord + ")");
+            } else {
+                Log.d(TAG, "Ollama查询词: " + query);
+            }
             Log.d(TAG, "Ollama查询上下文: " + context);
             if (isRepeated) {
                 Log.d(TAG, "查询重复单词: 第" + occurrenceIndex + "次出现, 位置: " + wordPosition);
@@ -2699,5 +2769,17 @@ public class SubtitleWordSelectionController {
             mIsSeekProtectionActive = false;
             Log.d(TAG, "跳转保护已自动清除");
         }, SEEK_PROTECTION_DURATION);
+    }
+    
+    // 在类的最上方fetchOllamaDefinition方法声明处添加无重试次数的重载版本
+    /**
+     * 从本地Ollama服务获取单词解释
+     * @param word 要查询的单词
+     * @param context 单词所在的上下文
+     * @param wordPosition 单词在字幕中的位置
+     * @return 单词解释
+     */
+    private String fetchOllamaDefinition(String word, String context, int wordPosition) {
+        return fetchOllamaDefinition(word, context, wordPosition, 0);
     }
 } 
