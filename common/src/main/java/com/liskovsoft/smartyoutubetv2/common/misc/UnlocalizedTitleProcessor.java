@@ -55,7 +55,7 @@ public class UnlocalizedTitleProcessor implements OnDataChange, BrowseProcessor 
         List<String> videoIds = getVideoIds(videoGroup);
         mResult = Observable.fromIterable(videoIds)
                 .flatMap(videoId -> mItemService.getUnlocalizedTitleObserve(videoId)
-                        .map(newTitle -> new Pair<>(videoId, newTitle)))
+                        .map(newTitle -> new android.util.Pair<>(videoId, newTitle)))
                 .subscribe(title -> {
                     Video video = videoGroup.findVideoById(title.first);
                     if (video == null || Helpers.equals(video.title, title.second)) {
