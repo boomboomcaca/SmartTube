@@ -974,8 +974,7 @@ public class SubtitleWordSelectionController {
                             // 增加重试计数
                             mRetryCount++;
                             Log.d(TAG, "需要重试，原因: " + 
-                                (finalDefinition.contains("注意：AI没有使用中文回答") ? "AI没有使用中文回答" : "返回内容仅包含'美式英语'") + 
-                                "，正在进行第" + mRetryCount + "次重试");
+                                (finalDefinition.contains("注意：AI没有使用中文回答") ? "AI没有使用中文回答" : "返回内容仅包含'美式英语'"));
                             // 延迟时间随重试次数增加，避免过快请求
                             int delayMs = 500 + (mRetryCount * 100);
                             mHandler.postDelayed(this::translateCurrentWordWithRetry, delayMs);
@@ -1055,7 +1054,7 @@ public class SubtitleWordSelectionController {
                 long timestamp = System.currentTimeMillis();
                 int randomNum = (int)(timestamp % 1000);
                 query = query + " #" + randomNum;
-                Log.d(TAG, "第" + (retryCount + 1) + "次尝试，添加随机后缀: '" + query + "'");
+                Log.d(TAG, "添加随机后缀: '" + query + "'");
             }
             
             // 检查单词在字幕中是否重复出现
@@ -1094,7 +1093,7 @@ public class SubtitleWordSelectionController {
             } else if (retryCount == 3) {
                 chineseEmphasis = "严格警告：只能用中文回答，一个英文单词都不要出现在解释中！";
             } else {
-                chineseEmphasis = "最后警告：我只接受纯中文回答！不要有任何英文单词出现在解释中（音标除外）！这是第" + (retryCount + 1) + "次尝试！";
+                chineseEmphasis = "最后警告：我只接受纯中文回答！不要有任何英文单词出现在解释中（音标除外）！";
             }
             
             String prompt;
@@ -1115,7 +1114,7 @@ public class SubtitleWordSelectionController {
             
             // 记录完整请求信息，方便调试
             if (retryCount > 0) {
-                Log.d(TAG, "第" + (retryCount + 1) + "次尝试 Ollama查询词: " + query + " (原始单词: " + originalWord + ")");
+                Log.d(TAG, "Ollama查询词: " + query + " (原始单词: " + originalWord + ")");
             } else {
                 Log.d(TAG, "Ollama查询词: " + query);
             }
