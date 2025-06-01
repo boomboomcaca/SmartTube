@@ -915,32 +915,41 @@ public class SubtitleWordSelectionController {
      * 带重试功能的翻译当前单词
      */
     private void translateCurrentWordWithRetry() {
-        // 重置重试计数器
-        mRetryCount = 0;
-        
-        // 获取当前单词
         if (mWords.length == 0 || mCurrentWordIndex >= mWords.length) {
             return;
         }
         
-        // 准备参数
-        final String word = mWords[mCurrentWordIndex];
-        final String context = mCurrentSubtitleText;
-        final int wordPosition = mCurrentWordIndex < mWordPositions.length ? mWordPositions[mCurrentWordIndex] : -1;
+        // 获取mWords数组中的当前单词
+        String currentWordFromArray = mWords[mCurrentWordIndex];
+        
+        // 尝试从字幕高亮获取实际单词
+        String actualHighlightedWord = getActualHighlightedWord();
+        
+        // 使用实际高亮单词（如果能获取到），否则使用数组中的单词
+        String wordToTranslate = (actualHighlightedWord != null && !actualHighlightedWord.isEmpty()) ? 
+                                actualHighlightedWord : currentWordFromArray;
+        
+        // 记录日志，便于调试
+        if (!wordToTranslate.equals(currentWordFromArray)) {
+            Log.d(TAG, "使用实际高亮单词: " + wordToTranslate + " 替代数组中单词: " + currentWordFromArray);
+        }
+        
+        // 获取当前单词的位置信息
+        int currentWordPosition = (mCurrentWordIndex < mWordPositions.length) ? mWordPositions[mCurrentWordIndex] : -1;
         
         // 显示覆盖层和加载提示
-        if (mRetryCount > 0) {
-            showDefinitionOverlay("正在重新查询中...");
-        } else {
+        if (mRetryCount == 0) {
             showDefinitionOverlay("正在查询中...\n请稍候");
         }
         
-        // 在后台线程中执行网络请求
-        final int finalRetryCount = mRetryCount;
+        // 创建一个新线程来执行网络请求，避免阻塞主线程
+        final String finalWordToTranslate = wordToTranslate;
+        final int finalWordPosition = currentWordPosition;
+        final int currentRetryCount = mRetryCount;
         
         new Thread(() -> {
             // 使用Ollama本地服务查询词义，传入重试次数
-            String definition = fetchOllamaDefinition(word, context, wordPosition, finalRetryCount);
+            String definition = fetchOllamaDefinition(finalWordToTranslate, mCurrentSubtitleText, finalWordPosition, currentRetryCount);
             
             // 记录日志
             Log.d(TAG, "翻译结果长度: " + (definition != null ? definition.length() : "null"));
@@ -2513,7 +2522,7 @@ public class SubtitleWordSelectionController {
             return originalText
                 .replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\[[^\\]]+\\]", "")
                 .replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\/[^\\/]+\\/", "")
-                .replaceAll("\\[[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "")
+                .replaceAll("\\[\\[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "")
                 .replaceAll("\\/[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\/", "")
                 .replace("*", "")
                 .trim();
@@ -2535,7 +2544,7 @@ public class SubtitleWordSelectionController {
         cleanedLine = cleanedLine.replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\/[^\\/]+\\/", "");
         
         // 移除方括号音标
-        cleanedLine = cleanedLine.replaceAll("\\[[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "");
+        cleanedLine = cleanedLine.replaceAll("\\[\\[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "");
         
         // 移除反斜杠音标
         cleanedLine = cleanedLine.replaceAll("\\/[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\/", "");
