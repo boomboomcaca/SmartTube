@@ -20,6 +20,7 @@ import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack;
 import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs.ProfileChangeListener;
 import com.liskovsoft.smartyoutubetv2.common.prefs.common.DataChangeBase;
+import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.youtubeapi.service.internal.MediaServiceData;
 
 import java.util.ArrayList;
@@ -97,6 +98,8 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
     private float mPitch;
     private long mAfrSwitchTimeMs;
     private List<String> mLastAudioLanguages;
+    private final Runnable mPersistStateInt = this::persistStateInt;
+    private boolean mIsLegacyCodecsForced;
 
     private static class SpeedItem {
         public String channelId;
@@ -280,12 +283,12 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
     }
 
     public boolean isLegacyCodecsForced() {
-        return MediaServiceData.instance().isFormatEnabled(MediaServiceData.FORMATS_URL) && !MediaServiceData.instance().isFormatEnabled(MediaServiceData.FORMATS_DASH);
+        return mIsLegacyCodecsForced;
     }
 
-    public void forceLegacyCodecs(boolean enable) {
-        MediaServiceData.instance().enableFormat(MediaServiceData.FORMATS_URL, enable);
-        MediaServiceData.instance().enableFormat(MediaServiceData.FORMATS_DASH, !enable);
+    public void forceLegacyCodecs(boolean forced) {
+        mIsLegacyCodecsForced = forced;
+        persistState();
     }
 
     public boolean isAfrEnabled() {
@@ -757,7 +760,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_yellow_semi_transparent, R.color.yellow, R.color.semi_transparent, CaptionStyleCompat.EDGE_TYPE_OUTLINE));
         mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_yellow_black, R.color.yellow, R.color.black, CaptionStyleCompat.EDGE_TYPE_OUTLINE));
 
-        if (Build.VERSION.SDK_INT >= 19) {
+        if (VERSION.SDK_INT >= 19) {
             mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_system));
         }
     }
@@ -801,7 +804,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         mIsAllSpeedEnabled = Helpers.parseBoolean(split, 21, false);
         // repeat mode was here
         // didn't remember what was there
-        // mIsLegacyCodecsForced
+        mIsLegacyCodecsForced = Helpers.parseBoolean(split, 24, false);
         mIsSonyTimerFixEnabled = Helpers.parseBoolean(split, 25, false);
         // old player tweaks
         mIsQualityInfoEnabled = Helpers.parseBoolean(split, 28, true);
@@ -854,13 +857,18 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
     }
 
     private void persistState() {
+        onDataChange();
+        Utils.postDelayed(mPersistStateInt, 10_000);
+    }
+
+    private void persistStateInt() {
         mPrefs.setProfileData(VIDEO_PLAYER_DATA, Helpers.mergeData(mOKButtonBehavior, mUiHideTimeoutSec, null,
                 mSeekPreviewMode, mIsSeekConfirmPauseEnabled,
                 mIsClockEnabled, mIsRemainingTimeEnabled, mBackgroundMode, null, // afrData was there
                 mVideoFormat, mAudioFormat, mSubtitleFormat,
                 mVideoBufferType, mSubtitleStyleIndex, mResizeMode, mSpeed,
                 mIsAfrEnabled, mIsAfrFpsCorrectionEnabled, mIsAfrResSwitchEnabled, null, mAudioDelayMs, mIsAllSpeedEnabled, null, null,
-                null, mIsSonyTimerFixEnabled, null, null, // old player tweaks
+                mIsLegacyCodecsForced, mIsSonyTimerFixEnabled, null, null, // old player tweaks
                 mIsQualityInfoEnabled, mIsSpeedPerVideoEnabled, mAspectRatio, mIsGlobalClockEnabled, mIsTimeCorrectionEnabled,
                 mIsGlobalEndingTimeEnabled, mIsEndingTimeEnabled, mIsDoubleRefreshRateEnabled, mIsSeekConfirmPlayEnabled,
                 mStartSeekIncrementMs, null, mSubtitleScale, mPlayerVolume, mIsTooltipsEnabled, mSubtitlePosition, mIsNumberKeySeekEnabled,
@@ -868,11 +876,13 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
                 mIsSpeedPerChannelEnabled, Helpers.mergeArray(mSpeeds.values().toArray()), mPitch, mIsSkipShortsEnabled, mLastAudioLanguages, mIsVideoFlipEnabled
         ));
 
-        onDataChange();
+        //onDataChange();
     }
 
     @Override
     public void onProfileChanged() {
+        Utils.removeCallbacks(mPersistStateInt);
+
         // reset on profile change
         mSpeeds.clear();
 

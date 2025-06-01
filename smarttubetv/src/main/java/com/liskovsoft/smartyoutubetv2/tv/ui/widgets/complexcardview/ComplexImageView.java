@@ -82,6 +82,13 @@ public class ComplexImageView extends RelativeLayout {
         }
     }
 
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+
+        stopPlayback();
+    }
+
     /**
      * Sets the badge text.
      */
@@ -176,6 +183,10 @@ public class ComplexImageView extends RelativeLayout {
     }
 
     public void stopPlayback() {
+        stopPlayback(false);
+    }
+
+    public void stopPlayback(boolean stopImmediately) {
         if (getVideo() == null) {
             return;
         }
@@ -192,9 +203,18 @@ public class ComplexImageView extends RelativeLayout {
             Utils.removeCallbacks(mCreateAndStartPlayer);
 
             if (mPreviewPlayer != null) {
-                mPreviewContainer.removeView(mPreviewPlayer);
                 mPreviewContainer.setVisibility(View.GONE);
-                mPreviewPlayer.finish();
+                if (stopImmediately) {
+                    mPreviewPlayer.finish();
+                    mPreviewContainer.removeView(mPreviewPlayer);
+                } else {
+                    EmbedPlayerView epv = mPreviewPlayer;
+                    epv.setMute(true);
+                    Utils.postDelayed(() -> {
+                        epv.finish();
+                        mPreviewContainer.removeView(epv);
+                    }, 500);
+                }
                 mPreviewPlayer = null;
             }
         }

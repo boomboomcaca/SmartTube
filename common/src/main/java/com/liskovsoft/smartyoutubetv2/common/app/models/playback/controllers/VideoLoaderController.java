@@ -14,7 +14,7 @@ import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.smartyoutubetv2.common.R;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Playlist;
-import com.liskovsoft.smartyoutubetv2.common.app.models.data.SampleMediaItem;
+import com.liskovsoft.smartyoutubetv2.common.app.models.data.SimpleMediaItem;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
@@ -24,7 +24,6 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.VideoActionPresenter;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
-import com.liskovsoft.smartyoutubetv2.common.prefs.common.DataChangeBase.OnDataChange;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
 import com.liskovsoft.smartyoutubetv2.common.utils.AppDialogUtil;
@@ -37,14 +36,13 @@ import io.reactivex.disposables.Disposable;
 import java.util.Collections;
 import java.util.List;
 
-public class VideoLoaderController extends BasePlayerController implements OnDataChange {
+public class VideoLoaderController extends BasePlayerController {
     private static final String TAG = VideoLoaderController.class.getSimpleName();
     private static final long STREAM_END_THRESHOLD_MS = 180_000;
     private static final long BUFFERING_THRESHOLD_MS = 5_000;
     private static final long BUFFERING_WINDOW_MS = 60_000;
     private static final long BUFFERING_RECURRENCE_COUNT = (long) (BUFFERING_WINDOW_MS * 0.5 / BUFFERING_THRESHOLD_MS);
     private final Playlist mPlaylist;
-    private final UniqueRandom mRandom;
     private Video mPendingVideo;
     private int mLastErrorType = -1;
     private SuggestionsController mSuggestionsController;
@@ -66,12 +64,11 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
             getPlayer().restartEngine(); // properly save position of the current track
         }
     };
-    private final Runnable mLoadRandomNext = this::loadRandomNext;
     private final Runnable mOnLongBuffering = this::updateBufferingCountIfNeeded;
 
     private final Runnable mRebootApp = () -> {
         Video video = getVideo();
-        if (video != null && video.hasVideo()) {
+        if (getPlayer() != null && video != null && video.hasVideo()) {
             Utils.restartTheApp(getContext(), video.videoId);
         }
     };
@@ -84,12 +81,10 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
 
     public VideoLoaderController() {
         mPlaylist = Playlist.instance();
-        mRandom = new UniqueRandom();
     }
 
     @Override
     public void onInit() {
-        getPlayerData().setOnChange(this);
         mSuggestionsController = getController(SuggestionsController.class);
         mSleepTimerStartMs = System.currentTimeMillis();
     }
@@ -174,6 +169,8 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
 
         mLastErrorType = -1;
         getPlayer().setButtonState(R.id.action_repeat, video.finishOnEnded ? PlayerConstants.PLAYBACK_MODE_CLOSE : getPlayerData().getPlaybackMode());
+        // Can't set title at this point
+        checkSleepTimer();
     }
 
     @Override
@@ -263,11 +260,6 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
         return false;
     }
 
-    @Override
-    public void onTickle() {
-        checkSleepTimer();
-    }
-
     private void checkSleepTimer() {
         if (getPlayer() == null) {
             return;
@@ -277,6 +269,7 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
             getPlayer().setPlayWhenReady(false);
             getPlayer().setTitle(getContext().getString(R.string.sleep_timer));
             getPlayer().showOverlay(true);
+            Helpers.enableScreensaver(getActivity());
         }
     }
 
@@ -374,7 +367,7 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
             } else { // 18+ video
                 scheduleNextVideoTimer(5_000);
             }
-        } else if (formatInfo.containsDashVideoFormats() && acceptDashVideoFormats(formatInfo)) {
+        } else if (acceptDashVideo(formatInfo)) {
             Log.d(TAG, "Found regular video in dash format. Loading...");
 
             mMpdStreamAction = formatInfo.createMpdStreamObservable()
@@ -388,7 +381,7 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
                             },
                             error -> Log.e(TAG, "createMpdStream error: %s", error.getMessage())
                     );
-        } else if (formatInfo.isLive() && formatInfo.containsDashUrl() && acceptDashUrl(formatInfo)) {
+        } else if (acceptDashLive(formatInfo)) {
             Log.d(TAG, "Found live video (current or past live stream) in dash format. Loading...");
             getPlayer().openDashUrl(formatInfo.getDashManifestUrl());
         } else if (formatInfo.isLive() && formatInfo.containsHlsUrl()) {
@@ -484,7 +477,7 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
 
         String message = error.getMessage();
         String className = error.getClass().getSimpleName();
-        String fullMsg = String.format("loadFormatInfo error: %s: %s", className, message);
+        String fullMsg = String.format("loadFormatInfo error: %s: %s", className, Utils.getStackTraceAsString(error));
         Log.e(TAG, fullMsg);
 
         if (!Helpers.containsAny(message, "fromNullable result is null")) {
@@ -533,17 +526,8 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
             restartEngine = false;
             resultMsg = shortErrorMsg;
         } else if (error instanceof OutOfMemoryError) {
-            //if (getPlayerData().getVideoBufferType() == PlayerData.BUFFER_LOWEST) {
-            //    getPlayerTweaksData().enableSectionPlaylist(false);
-            //} else if (getPlayerData().getVideoBufferType() == PlayerData.BUFFER_LOW) {
-            //    getPlayerData().setVideoBufferType(PlayerData.BUFFER_LOWEST);
-            //} else {
-            //    getPlayerData().setVideoBufferType(PlayerData.BUFFER_LOW);
-            //}
-
             if (getPlayerData().getVideoBufferType() == PlayerData.BUFFER_MEDIUM || getPlayerData().getVideoBufferType() == PlayerData.BUFFER_LOW) {
                 getPlayerTweaksData().enableSectionPlaylist(false);
-                //getPlayerTweaksData().enableHighBitrateFormats(false);
                 restartEngine = false;
             } else {
                 getPlayerData().setVideoBufferType(PlayerData.BUFFER_MEDIUM);
@@ -685,7 +669,7 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
         }
 
         // Stop the playback if the user is browsing options or reading comments
-        if (getAppDialogPresenter().isDialogShown() && !getAppDialogPresenter().isOverlay()) {
+        if (getAppDialogPresenter().isDialogShown() && !getAppDialogPresenter().isOverlay() && playbackMode != PlayerConstants.PLAYBACK_MODE_ONE) {
             getAppDialogPresenter().setOnFinish(mOnApplyPlaybackMode);
             return;
         }
@@ -780,7 +764,15 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
         }
     }
 
-    private boolean acceptDashVideoFormats(MediaItemFormatInfo formatInfo) {
+    private boolean acceptDashVideo(MediaItemFormatInfo formatInfo) {
+        if ((getPlayerData().isLegacyCodecsForced() || isEmbedPlayer()) && formatInfo.containsUrlFormats()) {
+            return false;
+        }
+
+        if ((getPlayerTweaksData().isHlsStreamsForced() || isEmbedPlayer()) && formatInfo.isLive() && formatInfo.containsHlsUrl()) {
+            return false;
+        }
+
         // Not enough info for full length live streams
         if (formatInfo.isLive() && formatInfo.getStartTimeMs() == 0) {
             return false;
@@ -788,31 +780,23 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
 
         // Live dash url doesn't work with None buffer
         //if (formatInfo.isLive() && (getPlayerTweaksData().isDashUrlStreamsForced() || getPlayerData().getVideoBufferType() == PlayerData.BUFFER_NONE)) {
-        if (formatInfo.isLive() && getPlayerTweaksData().isDashUrlStreamsForced()) {
+        if (formatInfo.isLive() && getPlayerTweaksData().isDashUrlStreamsForced() && formatInfo.containsDashUrl()) {
             return false;
         }
 
-        if (formatInfo.isLive() && getPlayerTweaksData().isHlsStreamsForced()) {
-            return false;
-        }
-
-        //if (getPlayerData().isLegacyCodecsForced()) {
-        //    return false;
-        //}
-
-        return true;
-    }
-
-    private boolean acceptDashUrl(MediaItemFormatInfo formatInfo) {
         if (formatInfo.isLive() && getPlayerTweaksData().isHlsStreamsForced() && formatInfo.containsHlsUrl()) {
             return false;
         }
 
-        //if (getPlayerData().isLegacyCodecsForced()) {
-        //    return false;
-        //}
+        return formatInfo.containsDashVideoFormats();
+    }
 
-        return true;
+    private boolean acceptDashLive(MediaItemFormatInfo formatInfo) {
+        if ((getPlayerTweaksData().isHlsStreamsForced() || isEmbedPlayer()) && formatInfo.isLive() && formatInfo.containsHlsUrl()) {
+            return false;
+        }
+
+        return formatInfo.isLive() && formatInfo.containsDashUrl();
     }
 
     @Override
@@ -826,8 +810,8 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
     }
 
     @Override
-    public void onDataChange() {
-        Utils.postDelayed(mLoadRandomNext, 3_000);
+    public void onPause() {
+        Utils.removeCallbacks(mOnLongBuffering);
     }
 
     private void loadRandomNext() {
@@ -840,25 +824,16 @@ public class VideoLoaderController extends BasePlayerController implements OnDat
         if (getPlayerData().getPlaybackMode() == PlayerConstants.PLAYBACK_MODE_SHUFFLE) {
             Video video = new Video();
             video.playlistId = getVideo().playlistId;
-            VideoGroup topRow = getPlayer().getSuggestionsByIndex(0);
-            video.playlistIndex = mRandom.getPlaylistIndex(getVideo().getPlaylistId(),
-                    getVideo().playlistInfo.getSize() != -1 ? getVideo().playlistInfo.getSize() : topRow != null ? topRow.getVideos().size() : -1);
+            video.playlistIndex = UniqueRandom.getRandomIndex(getVideo().playlistInfo.getCurrentIndex(), getVideo().playlistInfo.getSize());
 
             MediaServiceManager.instance().loadMetadata(video, randomMetadata -> {
                 if (randomMetadata.getNextVideo() == null) {
                     return;
                 }
 
-                if (getVideo().nextMediaItemBackup == null) {
-                    getVideo().nextMediaItemBackup = getVideo().nextMediaItem;
-                }
-
-                getVideo().nextMediaItem = SampleMediaItem.from(randomMetadata);
+                getVideo().nextMediaItem = SimpleMediaItem.from(randomMetadata);
                 getPlayer().setNextTitle(Video.from(getVideo().nextMediaItem));
             });
-        } else if (getVideo().nextMediaItemBackup != null) {
-            getVideo().nextMediaItem = getVideo().nextMediaItemBackup;
-            getPlayer().setNextTitle(Video.from(getVideo().nextMediaItem));
         }
     }
 
