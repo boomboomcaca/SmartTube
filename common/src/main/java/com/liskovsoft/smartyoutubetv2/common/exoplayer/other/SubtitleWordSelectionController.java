@@ -387,8 +387,10 @@ public class SubtitleWordSelectionController {
                 if (!mIsShowingDefinition) {
                     translateCurrentWord();
                 } else {
-                    // 如果已经在显示解释，点击确认键隐藏解释
-                    hideDefinitionOverlay();
+                    // 修改：OK键不关闭解释窗口，只有返回键才关闭
+                    // hideDefinitionOverlay();
+                    // 对于已经显示的解释窗口，OK按键不做任何操作
+                    Log.d(TAG, "解释窗口已显示，OK按键不做操作");
                 }
                 return true;
                 
