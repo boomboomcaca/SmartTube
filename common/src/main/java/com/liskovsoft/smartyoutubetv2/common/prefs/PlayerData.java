@@ -94,6 +94,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
     private List<String> mEnabledSubtitlesPerChannel;
     private boolean mIsSubtitlesPerChannelEnabled;
     private boolean mIsSpeedPerChannelEnabled;
+    private boolean mIsAutoSelectLastWordEnabled;
     private final Map<String, SpeedItem> mSpeeds = new HashMap<>();
     private float mPitch;
     private long mAfrSwitchTimeMs;
@@ -843,6 +844,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         mIsSkipShortsEnabled = Helpers.parseBoolean(split, 59, false);
         mLastAudioLanguages = Helpers.parseStrList(split, 60);
         mIsVideoFlipEnabled = Helpers.parseBoolean(split, 61, false);
+        mIsAutoSelectLastWordEnabled = Helpers.parseBoolean(split, 52, false);
 
         if (speeds != null) {
             for (String speedSpec : speeds) {
@@ -873,7 +875,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
                 mIsGlobalEndingTimeEnabled, mIsEndingTimeEnabled, mIsDoubleRefreshRateEnabled, mIsSeekConfirmPlayEnabled,
                 mStartSeekIncrementMs, null, mSubtitleScale, mPlayerVolume, mIsTooltipsEnabled, mSubtitlePosition, mIsNumberKeySeekEnabled,
                 mIsSkip24RateEnabled, mAfrPauseMs, mIsLiveChatEnabled, mLastSubtitleFormats, mLastSpeed, mRotationAngle, mZoomPercents, mPlaybackMode, mAudioLanguage, mSubtitleLanguage, mEnabledSubtitlesPerChannel, mIsSubtitlesPerChannelEnabled,
-                mIsSpeedPerChannelEnabled, Helpers.mergeArray(mSpeeds.values().toArray()), mPitch, mIsSkipShortsEnabled, mLastAudioLanguages, mIsVideoFlipEnabled
+                mIsSpeedPerChannelEnabled, Helpers.mergeArray(mSpeeds.values().toArray()), mPitch, mIsSkipShortsEnabled, mLastAudioLanguages, mIsVideoFlipEnabled, mIsAutoSelectLastWordEnabled
         ));
 
         //onDataChange();
@@ -887,5 +889,14 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         mSpeeds.clear();
 
         restoreState();
+    }
+
+    public boolean isAutoSelectLastWordEnabled() {
+        return mIsAutoSelectLastWordEnabled;
+    }
+
+    public void enableAutoSelectLastWord(boolean enable) {
+        mIsAutoSelectLastWordEnabled = enable;
+        persistState();
     }
 }

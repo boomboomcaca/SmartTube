@@ -494,6 +494,14 @@ public class AppDialogUtil {
         );
     }
 
+    public static OptionItem createSubtitleAutoSelectLastWordOption(Context context) {
+        PlayerData playerData = PlayerData.instance(context);
+        return UiOptionItem.from(context.getString(R.string.subtitle_auto_select_last_word),
+                optionItem -> playerData.enableAutoSelectLastWord(optionItem.isSelected()),
+                playerData.isAutoSelectLastWordEnabled()
+        );
+    }
+
     @TargetApi(19)
     private static List<OptionItem> createSubtitleStyles(Context context) {
         PlayerData playerData = PlayerData.instance(context);

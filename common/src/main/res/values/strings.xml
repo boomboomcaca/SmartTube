@@ -602,6 +602,7 @@
     <string name="content_block_stop_excluding_channel">Stop excluding this channel from SponsorBlock</string>
     <string name="player_chapter_notification">Quick advance through the chapters using the popup notification</string>
     <string name="subtitle_remember">Enable subtitles only on the current channel</string>
+    <string name="subtitle_auto_select_last_word">Auto-select last word when subtitle ends</string>
     <string name="amazon_frame_drop_fix">Frame drop fix #2</string>
     <string name="amazon_frame_drop_fix_desc">Intended for Amazon Stick devices. May work on other devices too.</string>
     <string name="default_stack_desc">Built-in network engine. This engine may have better stability in certain situations.</string>

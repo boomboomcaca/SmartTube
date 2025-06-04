@@ -5,6 +5,8 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Build.VERSION;
+import android.os.Handler;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.accessibility.CaptioningManager;
@@ -13,6 +15,7 @@ import android.widget.FrameLayout;
 
 import androidx.annotation.RequiresApi;
 import androidx.core.content.ContextCompat;
+import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.text.CaptionStyleCompat;
 import com.google.android.exoplayer2.text.Cue;
 import com.google.android.exoplayer2.text.TextOutput;
@@ -35,6 +38,13 @@ public class SubtitleManager implements TextOutput, OnDataChange {
     private final PlayerData mPlayerData;
     private CharSequence subsBuffer;
     private SubtitleWordSelectionController mWordSelectionController;
+    private SimpleExoPlayer mPlayer;
+    
+    // 添加用于定时检测字幕变化的Handler
+    private final Handler mHandler = new Handler();
+    private final long AUTO_SELECT_DELAY_MS = 4000; // 4秒后自动选词
+    private boolean mHasActiveCues = false;
+    private Runnable mAutoSelectWordRunnable;
 
     public static class SubtitleStyle {
         public final int nameResId;
@@ -71,6 +81,26 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         if (rootView != null && mSubtitleView != null) {
             mWordSelectionController = new SubtitleWordSelectionController(activity, mSubtitleView, rootView);
         }
+        
+        // 初始化自动选词定时器
+        mAutoSelectWordRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (mHasActiveCues && mWordSelectionController != null && 
+                        mPlayerData.isAutoSelectLastWordEnabled() && 
+                        !mWordSelectionController.isInWordSelectionMode()) {
+                    Log.d(TAG, "定时器触发自动选词");
+                    mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
+                }
+            }
+        };
+    }
+
+    /**
+     * 设置播放器引用，用于获取当前播放位置
+     */
+    public void setPlayer(SimpleExoPlayer player) {
+        mPlayer = player;
     }
 
     @Override
@@ -92,6 +122,67 @@ public class SubtitleManager implements TextOutput, OnDataChange {
             // 确保选词控制器使用最新的字幕内容
             if (mWordSelectionController != null && alignedCues != cues) {
                 mWordSelectionController.setCurrentSubtitleText(alignedCues);
+            }
+            
+            // 字幕变化检测和自动选词功能
+            if (mPlayerData != null && mPlayerData.isAutoSelectLastWordEnabled()) {
+                if (!cues.isEmpty() && !mHasActiveCues) {
+                    // 新字幕出现
+                    mHasActiveCues = true;
+                    Log.d(TAG, "检测到新字幕，计划" + AUTO_SELECT_DELAY_MS + "毫秒后自动选词");
+                    
+                    // 取消之前的定时任务
+                    mHandler.removeCallbacks(mAutoSelectWordRunnable);
+                    
+                    // 安排新的定时任务，在字幕显示后延迟一段时间触发选词
+                    mHandler.postDelayed(mAutoSelectWordRunnable, AUTO_SELECT_DELAY_MS);
+                } else if (cues.isEmpty() && mHasActiveCues) {
+                    // 字幕消失
+                    mHasActiveCues = false;
+                    Log.d(TAG, "字幕已消失，取消自动选词计划");
+                    mHandler.removeCallbacks(mAutoSelectWordRunnable);
+                }
+            }
+            
+            // 原有的WebVTT字幕处理代码（保留调试信息)
+            if (mWordSelectionController != null && mPlayerData.isAutoSelectLastWordEnabled() && 
+                    !alignedCues.isEmpty() && mPlayer != null) {
+                
+                boolean foundWebvttCue = false;
+                // 查找WebVTT类型的Cue，它们包含结束时间信息
+                for (Cue cue : cues) {
+                    Log.d(TAG, "处理字幕Cue: " + cue.getClass().getName());
+                    
+                    if (cue instanceof com.google.android.exoplayer2.text.webvtt.WebvttCue) {
+                        foundWebvttCue = true;
+                        com.google.android.exoplayer2.text.webvtt.WebvttCue webvttCue = 
+                                (com.google.android.exoplayer2.text.webvtt.WebvttCue) cue;
+                        
+                        // 获取当前播放位置和字幕结束时间
+                        long currentPositionUs = mPlayer.getCurrentPosition() * 1000; // 转换为微秒
+                        long endTimeUs = webvttCue.endTime;
+                        
+                        // 计算剩余时间（微秒）
+                        long remainingTimeUs = endTimeUs - currentPositionUs;
+                        
+                        Log.d(TAG, "WebVTT字幕: 当前位置=" + currentPositionUs + 
+                                     "微秒, 结束时间=" + endTimeUs + 
+                                     "微秒, 剩余时间=" + remainingTimeUs + "微秒" +
+                                     ", 内容: " + cue.text);
+                        
+                        // 如果字幕即将结束（改为5秒内）且不在选词模式中，则自动进入选词模式并选择最后一个单词
+                        if (remainingTimeUs > 0 && remainingTimeUs < 5000000 && !mWordSelectionController.isInWordSelectionMode()) {
+                            Log.d(TAG, "字幕即将结束，触发自动选词模式");
+                            mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
+                        }
+                        
+                        break; // 找到一个有时间信息的Cue就可以了
+                    }
+                }
+                
+                if (!foundWebvttCue) {
+                    Log.d(TAG, "未找到WebvttCue类型的字幕，将使用定时器方式");
+                }
             }
         }
     }

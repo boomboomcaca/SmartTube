@@ -214,6 +214,7 @@ public class PlayerUIController extends BasePlayerController {
         }));
 
         settingsPresenter.appendSingleSwitch(AppDialogUtil.createSubtitleChannelOption(getContext()));
+        settingsPresenter.appendSingleSwitch(AppDialogUtil.createSubtitleAutoSelectLastWordOption(getContext()));
 
         OptionCategory stylesCategory = AppDialogUtil.createSubtitleStylesCategory(getContext());
         settingsPresenter.appendRadioCategory(stylesCategory.title, stylesCategory.options);
