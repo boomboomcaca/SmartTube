@@ -46,28 +46,29 @@ public class SubtitleManager implements TextOutput, OnDataChange {
     private final long AUTO_SELECT_DELAY_MS = 4000; // 4秒后自动选词
     private boolean mHasActiveCues = false;
     private Runnable mAutoSelectWordRunnable;
-    // 添加字幕结束时间相关变量
+    
+    // 修改：增加额外的状态跟踪变量
     private long mCurrentSubEndTimeUs = -1;
-    // 添加标志位，跟踪选词状态
     private boolean mWordSelectionActive = false;
-    // 添加周期性检查机制
-    private static final long CHECK_INTERVAL_MS = 50; // 每50毫秒检查一次，提高检查频率
-    // 添加字幕ID跟踪
+    private boolean mWordSelectionPending = false; // 新增：选词操作等待执行标志
+    private boolean mIsAutomaticSubtitles = false; // 新增：标记是否为自动生成字幕
+    private static final long CHECK_INTERVAL_MS = 100; // 修改为100毫秒检查一次
     private int mCurrentSubtitleId = 0;
     private CharSequence mCurrentSubtitleText = null;
-    // 添加字幕类型跟踪
     private String mCurrentSubtitleType = null;
-    
-    // 添加额外的备用触发计时器
     private long mLastSubtitleChangeTimeMs = 0;
-    private static final long BACKUP_TRIGGER_DELAY_MS = 3000; // 备用触发时间，字幕出现3秒后尝试触发
+    private static final long BACKUP_TRIGGER_DELAY_MS = 3000; // 备用触发时间
+    
+    // 修改：增加锁定时间，防止短时间内重复触发
+    private long mLastSelectionTimeMs = 0;
+    private static final long SELECTION_COOLDOWN_MS = 2000; // 2秒内不重复触发
     
     private final Runnable mPeriodicCheckRunnable = new Runnable() {
         @Override
         public void run() {
             checkSubtitleEndTimeAndSelect();
             // 继续安排下一次检查，只要有活动的字幕
-            if (mHasActiveCues && mPlayer != null) {
+            if (mHasActiveCues && mPlayer != null && !mWordSelectionActive) {
                 mHandler.postDelayed(this, CHECK_INTERVAL_MS);
             }
         }
@@ -131,10 +132,31 @@ public class SubtitleManager implements TextOutput, OnDataChange {
      * 进入选词模式并跟踪状态
      */
     private void enterWordSelectionModeAndTrack() {
-        if (mWordSelectionController != null && !mWordSelectionActive) {
-            mWordSelectionActive = true; // 设置标志位，避免重复触发
-            Log.d(TAG, "进入选词模式并标记状态 - 字幕ID: " + mCurrentSubtitleId);
-            mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
+        // 防止短时间内重复触发
+        long now = System.currentTimeMillis();
+        if (now - mLastSelectionTimeMs < SELECTION_COOLDOWN_MS) {
+            Log.d(TAG, "冷却时间内，忽略选词请求 - 上次触发: " + (now - mLastSelectionTimeMs) + "毫秒前");
+            return;
+        }
+        
+        if (mWordSelectionController != null && !mWordSelectionActive && !mWordSelectionPending) {
+            mWordSelectionPending = true; // 标记选词操作为等待状态
+            
+            // 取消所有可能的后续触发
+            mHandler.removeCallbacks(mAutoSelectWordRunnable);
+            
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (!mWordSelectionController.isInWordSelectionMode()) {
+                        mWordSelectionActive = true; // 设置标志位，避免重复触发
+                        mLastSelectionTimeMs = System.currentTimeMillis();
+                        Log.d(TAG, "进入选词模式并标记状态 - 字幕ID: " + mCurrentSubtitleId);
+                        mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
+                    }
+                    mWordSelectionPending = false; // 无论是否成功，都重置等待状态
+                }
+            });
         }
     }
     
@@ -142,7 +164,7 @@ public class SubtitleManager implements TextOutput, OnDataChange {
      * 退出选词模式并重置状态
      */
     private void exitWordSelectionModeAndReset() {
-        if (mWordSelectionController != null && mWordSelectionActive) {
+        if (mWordSelectionController != null) {
             if (mWordSelectionController.isInWordSelectionMode()) {
                 mWordSelectionController.exitWordSelectionMode();
                 Log.d(TAG, "退出选词模式 - 字幕ID: " + mCurrentSubtitleId);
@@ -155,7 +177,7 @@ public class SubtitleManager implements TextOutput, OnDataChange {
      * 检查字幕结束时间并选择单词
      */
     private void checkSubtitleEndTimeAndSelect() {
-        if (!mHasActiveCues || mPlayer == null || mWordSelectionActive || 
+        if (!mHasActiveCues || mPlayer == null || mWordSelectionActive || mWordSelectionPending || 
             mWordSelectionController == null || !mPlayerData.isAutoSelectLastWordEnabled() || 
             mWordSelectionController.isInWordSelectionMode()) {
             return;
@@ -164,24 +186,27 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         // 当前播放位置
         long currentPositionUs = mPlayer.getCurrentPosition() * 1000; // 转换为微秒
         
+        // 防止短时间内重复触发
+        long now = System.currentTimeMillis();
+        if (now - mLastSelectionTimeMs < SELECTION_COOLDOWN_MS) {
+            return;
+        }
+        
         // 如果有明确的结束时间
         if (mCurrentSubEndTimeUs > 0) {
             long remainingUs = mCurrentSubEndTimeUs - currentPositionUs;
             
-            // 改进：在距离结束前0.1秒到0.01秒之间触发，增加触发成功率窗口
-            if (remainingUs > 0 && remainingUs < 100000) { // 0.1秒内
-                Log.d(TAG, "周期性检查: 字幕即将结束（剩余" + (remainingUs/1000) + "毫秒），触发自动选词 - 字幕ID: " + 
-                      mCurrentSubtitleId + ", 类型: " + mCurrentSubtitleType);
+            // 改进：在距离结束前0.2秒内触发，增加触发窗口
+            if (remainingUs > 0 && remainingUs < 200000) { // 0.2秒内
+                Log.d(TAG, "周期性检查: 字幕即将结束（剩余" + (remainingUs/1000) + "毫秒），触发自动选词");
                 enterWordSelectionModeAndTrack();
             }
-        } else {
-            // 备用机制：如果无法获取结束时间，使用经过时间作为触发依据
+        } else if (mIsAutomaticSubtitles) {
+            // 自动生成字幕的备用机制
             long elapsedMs = System.currentTimeMillis() - mLastSubtitleChangeTimeMs;
             if (elapsedMs >= BACKUP_TRIGGER_DELAY_MS) {
-                Log.d(TAG, "备用触发机制: 字幕显示时间已达" + BACKUP_TRIGGER_DELAY_MS + "毫秒，触发自动选词 - 字幕ID: " + 
-                      mCurrentSubtitleId);
+                Log.d(TAG, "自动生成字幕备用触发: 字幕显示时间已达" + BACKUP_TRIGGER_DELAY_MS + "毫秒");
                 enterWordSelectionModeAndTrack();
-                
                 // 避免重复触发备用机制
                 mLastSubtitleChangeTimeMs = Long.MAX_VALUE;
             }
@@ -201,7 +226,8 @@ public class SubtitleManager implements TextOutput, OnDataChange {
      */
     private void resetWordSelectionState() {
         mWordSelectionActive = false;
-        Log.d(TAG, "重置选词状态，为下一个字幕准备 - 当前字幕ID: " + mCurrentSubtitleId);
+        mWordSelectionPending = false;
+        Log.d(TAG, "重置选词状态，为下一个字幕准备");
     }
 
     @Override
@@ -210,9 +236,16 @@ public class SubtitleManager implements TextOutput, OnDataChange {
     }
     
     /**
-     * 生成字幕的唯一ID
+     * 生成字幕的唯一ID，改进识别自动生成字幕的能力
      */
     private int generateSubtitleId(List<Cue> cues) {
+        if (cues == null || cues.isEmpty()) {
+            return 0;
+        }
+        
+        // 检查是否是自动生成字幕
+        mIsAutomaticSubtitles = isAutoGeneratedSubtitle(cues);
+        
         StringBuilder sb = new StringBuilder();
         for (Cue cue : cues) {
             if (cue.text != null) {
@@ -221,6 +254,33 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         }
         return sb.toString().hashCode();
     }
+    
+    /**
+     * 判断是否为自动生成字幕
+     */
+    private boolean isAutoGeneratedSubtitle(List<Cue> cues) {
+        if (cues == null || cues.size() <= 1) {
+            return false;
+        }
+        
+        // 自动生成字幕通常是一个单词一个Cue
+        int singleWordCount = 0;
+        for (Cue cue : cues) {
+            if (cue.text != null) {
+                String text = cue.text.toString().trim();
+                if (!text.isEmpty() && !text.contains(" ") && !text.contains("\n")) {
+                    singleWordCount++;
+                }
+            }
+        }
+        
+        // 如果超过一半的Cue是单词，判定为自动生成字幕
+        boolean isAuto = singleWordCount > cues.size() / 2;
+        if (isAuto) {
+            Log.d(TAG, "检测到自动生成字幕，单词数: " + singleWordCount + ", 总Cue数: " + cues.size());
+        }
+        return isAuto;
+    }
 
     @Override
     public void onCues(List<Cue> cues) {
@@ -228,9 +288,14 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         Log.d(TAG, "onCues: 收到字幕事件, 字幕数量: " + (cues != null ? cues.size() : 0));
         
         // 检查当前是否在选词模式，如果是且字幕变化，则退出选词模式
-        if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
-            Log.d(TAG, "检测到字幕变化时已在选词模式，退出当前选词模式");
+        if (mWordSelectionController != null && 
+            (mWordSelectionController.isInWordSelectionMode() || mWordSelectionActive || mWordSelectionPending)) {
+            Log.d(TAG, "检测到字幕变化时已在选词模式或选词过程中，退出当前选词模式");
             exitWordSelectionModeAndReset();
+            
+            // 取消所有可能的后续选词操作
+            mHandler.removeCallbacks(mAutoSelectWordRunnable);
+            mHandler.removeCallbacks(mPeriodicCheckRunnable);
         }
         
         // 更新字幕文本到选词控制器
@@ -253,12 +318,6 @@ public class SubtitleManager implements TextOutput, OnDataChange {
             if (!cues.isEmpty() && cues.get(0).text != null) {
                 newSubtitleId = generateSubtitleId(cues);
                 newSubtitleText = cues.get(0).text;
-                
-                // 调试日志：显示字幕内容和类型
-                if (!cues.isEmpty()) {
-                    String cueClassName = cues.get(0).getClass().getName();
-                    Log.d(TAG, "字幕类型: " + cueClassName + ", 文本: " + newSubtitleText);
-                }
             }
             
             // 字幕变化检测和自动选词功能
@@ -266,71 +325,77 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                 if (!cues.isEmpty() && !mHasActiveCues) {
                     // 新字幕出现 - 重置选词状态
                     mHasActiveCues = true;
-                    mWordSelectionActive = false;
+                    resetWordSelectionState();
                     mLastSubtitleChangeTimeMs = System.currentTimeMillis(); // 记录字幕变化时间
                     
                     // 更新字幕ID和文本
                     mCurrentSubtitleId = newSubtitleId;
                     mCurrentSubtitleText = newSubtitleText;
-                    Log.d(TAG, "新字幕出现，ID: " + mCurrentSubtitleId + ", 文本: " + (newSubtitleText != null ? newSubtitleText.toString() : "null"));
+                    Log.d(TAG, "新字幕出现，ID: " + mCurrentSubtitleId + 
+                          ", 自动生成: " + mIsAutomaticSubtitles + 
+                          ", 文本: " + (newSubtitleText != null ? newSubtitleText.toString() : "null"));
                     
-                    // 获取字幕的结束时间（使用新的辅助方法）
+                    // 获取字幕的结束时间
                     mCurrentSubEndTimeUs = -1;
                     if (!cues.isEmpty()) {
                         for (Cue cue : cues) {
                             long endTime = getSubtitleEndTime(cue);
                             if (endTime > 0) {
                                 mCurrentSubEndTimeUs = endTime;
-                                Log.d(TAG, "获取到字幕结束时间: " + mCurrentSubEndTimeUs + "微秒 - 字幕ID: " + mCurrentSubtitleId + 
-                                      ", 类型: " + mCurrentSubtitleType);
+                                Log.d(TAG, "获取到字幕结束时间: " + mCurrentSubEndTimeUs + "微秒");
                                 break;
                             }
                         }
                     }
                     
-                    // 如果获取到结束时间，计划在结束前0.01秒触发选词
-                    if (mCurrentSubEndTimeUs > 0 && mPlayer != null) {
-                        long currentPositionUs = mPlayer.getCurrentPosition() * 1000; // 转换为微秒
-                        long remainingUs = mCurrentSubEndTimeUs - currentPositionUs;
-                        
-                        Log.d(TAG, "字幕总剩余时间: " + remainingUs/1000 + "毫秒 - 字幕ID: " + mCurrentSubtitleId);
-                        
-                        if (remainingUs > 10000) { // 如果剩余时间大于0.01秒
-                            long delayMs = (remainingUs - 10000) / 1000; // 转换为毫秒
-                            // 修正：确保延迟至少为100毫秒，避免太快触发
-                            delayMs = Math.max(delayMs, 100);
-                            Log.d(TAG, "计划在字幕结束前0.01秒选词，延迟: " + delayMs + "毫秒 - 字幕ID: " + mCurrentSubtitleId);
-                            
-                            // 取消之前的定时任务
-                            mHandler.removeCallbacks(mAutoSelectWordRunnable);
-                            
-                            // 安排新的定时任务
-                            mHandler.postDelayed(mAutoSelectWordRunnable, delayMs);
-                        } else if (remainingUs > 0) {
-                            // 如果剩余时间小于0.01秒但大于0，立即触发
-                            Log.d(TAG, "字幕剩余时间小于0.01秒，立即触发选词 - 字幕ID: " + mCurrentSubtitleId);
-                            mHandler.removeCallbacks(mAutoSelectWordRunnable);
-                            mHandler.post(mAutoSelectWordRunnable);
-                        }
-                    } else {
-                        // 如果无法获取结束时间，使用固定延迟（保留原有逻辑作为备选）
-                        Log.d(TAG, "无法获取字幕结束时间，使用固定延迟: " + AUTO_SELECT_DELAY_MS + "毫秒 - 字幕ID: " + mCurrentSubtitleId);
-                        mHandler.removeCallbacks(mAutoSelectWordRunnable);
-                        mHandler.postDelayed(mAutoSelectWordRunnable, AUTO_SELECT_DELAY_MS);
-                        
-                        // 备用机制：启用基于时长的备用触发（通过检查机制实现）
-                        Log.d(TAG, "启用备用触发机制，将在字幕显示" + BACKUP_TRIGGER_DELAY_MS + "毫秒后尝试触发");
-                    }
-                    
-                    // 启动周期性检查
+                    // 取消所有现有定时器
+                    mHandler.removeCallbacks(mAutoSelectWordRunnable);
                     mHandler.removeCallbacks(mPeriodicCheckRunnable);
-                    mHandler.post(mPeriodicCheckRunnable);
                     
+                    // 针对自动生成字幕和普通字幕分别处理
+                    if (mIsAutomaticSubtitles) {
+                        // 自动生成字幕：使用备用触发机制，减少重复触发风险
+                        Log.d(TAG, "自动生成字幕：使用备用触发机制");
+                        // 启动周期性检查
+                        mHandler.post(mPeriodicCheckRunnable);
+                    } else {
+                        // 普通字幕：可以使用更准确的定时器
+                        if (mCurrentSubEndTimeUs > 0 && mPlayer != null) {
+                            long currentPositionUs = mPlayer.getCurrentPosition() * 1000; // 转换为微秒
+                            long remainingUs = mCurrentSubEndTimeUs - currentPositionUs;
+                            
+                            if (remainingUs > 200000) { // 如果剩余时间大于0.2秒
+                                long delayMs = (remainingUs - 200000) / 1000; // 转换为毫秒
+                                delayMs = Math.max(delayMs, 100); // 确保至少100毫秒
+                                Log.d(TAG, "计划在字幕结束前0.2秒选词，延迟: " + delayMs + "毫秒");
+                                mHandler.postDelayed(mAutoSelectWordRunnable, delayMs);
+                            } else if (remainingUs > 0) {
+                                // 如果剩余时间小于0.2秒但大于0，立即触发
+                                Log.d(TAG, "字幕剩余时间小于0.2秒，立即触发选词");
+                                mHandler.post(mAutoSelectWordRunnable);
+                            }
+                        } else {
+                            // 无法获取结束时间，使用固定延迟
+                            Log.d(TAG, "无法获取字幕结束时间，使用固定延迟: " + AUTO_SELECT_DELAY_MS + "毫秒");
+                            mHandler.postDelayed(mAutoSelectWordRunnable, AUTO_SELECT_DELAY_MS);
+                        }
+                        
+                        // 同时启用周期性检查作为备用
+                        mHandler.post(mPeriodicCheckRunnable);
+                    }
                 } else if (!cues.isEmpty() && mHasActiveCues && newSubtitleId != mCurrentSubtitleId && newSubtitleId != 0) {
                     // 字幕内容变化但未消失（新的字幕替换旧的）
-                    Log.d(TAG, "字幕内容变化: 旧ID=" + mCurrentSubtitleId + ", 新ID=" + newSubtitleId);
+                    Log.d(TAG, "字幕内容变化: 旧ID=" + mCurrentSubtitleId + 
+                          ", 新ID=" + newSubtitleId + 
+                          ", 自动生成: " + mIsAutomaticSubtitles);
+                    
+                    // 取消所有现有的定时器
+                    mHandler.removeCallbacks(mAutoSelectWordRunnable);
+                    mHandler.removeCallbacks(mPeriodicCheckRunnable);
+                    
                     // 退出旧字幕的选词模式
                     exitWordSelectionModeAndReset();
+                    
                     // 更新当前字幕ID和文本
                     mCurrentSubtitleId = newSubtitleId;
                     mCurrentSubtitleText = newSubtitleText;
@@ -343,42 +408,39 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                             long endTime = getSubtitleEndTime(cue);
                             if (endTime > 0) {
                                 mCurrentSubEndTimeUs = endTime;
-                                Log.d(TAG, "字幕变化：获取到新字幕结束时间: " + mCurrentSubEndTimeUs + "微秒 - 字幕ID: " + 
-                                      mCurrentSubtitleId + ", 类型: " + mCurrentSubtitleType);
+                                Log.d(TAG, "字幕变化：获取到新字幕结束时间: " + mCurrentSubEndTimeUs + "微秒");
                                 break;
                             }
                         }
                     }
                     
-                    // 设置新的定时器
-                    if (mCurrentSubEndTimeUs > 0 && mPlayer != null) {
-                        long currentPositionUs = mPlayer.getCurrentPosition() * 1000; // 转换为微秒
-                        long remainingUs = mCurrentSubEndTimeUs - currentPositionUs;
-                        
-                        Log.d(TAG, "字幕变化：字幕总剩余时间: " + remainingUs/1000 + "毫秒 - 字幕ID: " + mCurrentSubtitleId);
-                        
-                        if (remainingUs > 10000) { // 如果剩余时间大于0.01秒
-                            long delayMs = (remainingUs - 10000) / 1000; // 转换为毫秒
-                            // 修正：确保延迟至少为100毫秒，避免太快触发
-                            delayMs = Math.max(delayMs, 100);
-                            Log.d(TAG, "字幕变化：计划在字幕结束前0.01秒选词，延迟: " + delayMs + "毫秒 - 字幕ID: " + mCurrentSubtitleId);
-                            
-                            // 取消之前的定时任务
-                            mHandler.removeCallbacks(mAutoSelectWordRunnable);
-                            
-                            // 安排新的定时任务
-                            mHandler.postDelayed(mAutoSelectWordRunnable, delayMs);
-                        } else if (remainingUs > 0) {
-                            // 如果剩余时间小于0.01秒但大于0，立即触发
-                            Log.d(TAG, "字幕变化：字幕剩余时间小于0.01秒，立即触发选词 - 字幕ID: " + mCurrentSubtitleId);
-                            mHandler.removeCallbacks(mAutoSelectWordRunnable);
-                            mHandler.post(mAutoSelectWordRunnable);
-                        }
+                    // 针对不同类型字幕采用不同策略
+                    if (mIsAutomaticSubtitles) {
+                        // 自动生成字幕：仅使用周期性检查，避免重复触发
+                        Log.d(TAG, "字幕变化-自动生成字幕：仅使用周期性检查机制");
+                        mHandler.post(mPeriodicCheckRunnable);
                     } else {
-                        // 如果无法获取结束时间，使用固定延迟
-                        Log.d(TAG, "字幕变化：无法获取字幕结束时间，使用固定延迟: " + AUTO_SELECT_DELAY_MS + "毫秒 - 字幕ID: " + mCurrentSubtitleId);
-                        mHandler.removeCallbacks(mAutoSelectWordRunnable);
-                        mHandler.postDelayed(mAutoSelectWordRunnable, AUTO_SELECT_DELAY_MS);
+                        // 普通字幕：设置定时器
+                        if (mCurrentSubEndTimeUs > 0 && mPlayer != null) {
+                            long currentPositionUs = mPlayer.getCurrentPosition() * 1000;
+                            long remainingUs = mCurrentSubEndTimeUs - currentPositionUs;
+                            
+                            if (remainingUs > 200000) {
+                                long delayMs = (remainingUs - 200000) / 1000;
+                                delayMs = Math.max(delayMs, 100);
+                                Log.d(TAG, "字幕变化：计划在字幕结束前0.2秒选词，延迟: " + delayMs + "毫秒");
+                                mHandler.postDelayed(mAutoSelectWordRunnable, delayMs);
+                            } else if (remainingUs > 0) {
+                                Log.d(TAG, "字幕变化：字幕剩余时间小于0.2秒，立即触发选词");
+                                mHandler.post(mAutoSelectWordRunnable);
+                            }
+                        } else {
+                            Log.d(TAG, "字幕变化：无法获取字幕结束时间，使用固定延迟: " + AUTO_SELECT_DELAY_MS + "毫秒");
+                            mHandler.postDelayed(mAutoSelectWordRunnable, AUTO_SELECT_DELAY_MS);
+                        }
+                        
+                        // 同时启用周期性检查作为备用
+                        mHandler.post(mPeriodicCheckRunnable);
                     }
                     
                 } else if (cues.isEmpty() && mHasActiveCues) {
@@ -389,12 +451,14 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                     mCurrentSubtitleId = 0;
                     mCurrentSubtitleText = null;
                     mCurrentSubtitleType = null;
+                    mIsAutomaticSubtitles = false;
                     mLastSubtitleChangeTimeMs = 0; // 重置字幕变化时间
                     resetWordSelectionState();
                     
                     // 确保选词模式已退出
                     exitWordSelectionModeAndReset();
                     
+                    // 取消所有定时器
                     Log.d(TAG, "取消自动选词计划和周期检查");
                     mHandler.removeCallbacks(mAutoSelectWordRunnable);
                     mHandler.removeCallbacks(mPeriodicCheckRunnable);
@@ -445,41 +509,36 @@ public class SubtitleManager implements TextOutput, OnDataChange {
 
         // 对于自动生成的字幕，我们需要保留所有的单词
         StringBuilder fullText = new StringBuilder();
-        boolean isAutoGenerated = false;
-
-        // 检查是否是自动生成的字幕（通常是一个单词一个 Cue）
-        if (cues.size() > 1) {
-            boolean allSingleWords = true;
-            for (Cue cue : cues) {
-                if (cue.text != null) {
-                    String text = cue.text.toString();
-                    // 考虑 CJK 字符，一个 CJK 字符也可能是一个完整的单词
-                    if (text.split("\\s+").length > 1 && !containsOnlyCJK(text)) {
-                        allSingleWords = false;
-                        break;
-                    }
-                }
-            }
-            isAutoGenerated = allSingleWords;
-        }
+        boolean isAutoGenerated = isAutoGeneratedSubtitle(cues);
 
         if (isAutoGenerated) {
-            // 合并所有单词到一个完整的字幕
+            // 合并所有单词到一个完整的字幕，避免重复
+            StringBuilder currentLine = new StringBuilder();
+            String lastWord = null;
+            
             for (Cue cue : cues) {
                 if (cue.text != null) {
-                    if (fullText.length() > 0) {
-                        fullText.append(" ");
+                    String currentWord = cue.text.toString().trim();
+                    
+                    // 避免重复添加相同的单词
+                    if (!currentWord.equals(lastWord)) {
+                        if (currentLine.length() > 0) {
+                            currentLine.append(" ");
+                        }
+                        currentLine.append(currentWord);
+                        lastWord = currentWord;
                     }
-                    fullText.append(cue.text.toString().trim());
                 }
             }
+            
             // 创建一个新的 Cue，包含所有单词
-            result.add(new Cue(fullText.toString()));
+            if (currentLine.length() > 0) {
+                result.add(new Cue(currentLine.toString()));
+            }
         } else {
             // 常规字幕处理
             for (Cue cue : cues) {
                 // Autogenerated subs repeated lines fix
-                // if (cue.text.toString().endsWith("\n")) {
                 if (Helpers.endsWithAny(cue.text.toString(), "\n", " ")) {
                     subsBuffer = cue.text;
                 } else {
@@ -599,13 +658,11 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         // 记录字幕类型用于调试
         mCurrentSubtitleType = cue.getClass().getSimpleName();
         String fullClassName = cue.getClass().getName();
-        Log.d(TAG, "尝试从字幕类型获取结束时间: " + fullClassName);
         
         // 处理WebVTT格式
         if (cue instanceof com.google.android.exoplayer2.text.webvtt.WebvttCue) {
             com.google.android.exoplayer2.text.webvtt.WebvttCue webvttCue = 
                     (com.google.android.exoplayer2.text.webvtt.WebvttCue) cue;
-            Log.d(TAG, "WebVTT字幕: endTime=" + webvttCue.endTime);
             return webvttCue.endTime;
         }
         
@@ -624,7 +681,6 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                     Object value = field.get(cue);
                     if (value instanceof Number) {
                         long timeValue = ((Number) value).longValue();
-                        Log.d(TAG, "找到可能的结束时间字段: " + fieldName + " = " + timeValue);
                         return timeValue;
                     }
                 } catch (Exception e) {
@@ -646,7 +702,6 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                             long timeValue = ((Number) value).longValue();
                             // 检查值的合理性（作为微秒时间）
                             if (timeValue > 0 && timeValue < 7200000000L) { // 小于2小时
-                                Log.d(TAG, "根据字段名推断可能的结束时间字段: " + fieldName + " = " + timeValue);
                                 return timeValue;
                             }
                         }
@@ -668,7 +723,6 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                             if (value instanceof Number) {
                                 long timeValue = ((Number) value).longValue();
                                 if (timeValue > 0 && timeValue < 7200000000L) {
-                                    Log.d(TAG, "从父类获取到可能的结束时间字段: " + fieldName + " = " + timeValue);
                                     return timeValue;
                                 }
                             }
@@ -676,18 +730,10 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                     }
                 }
             }
-            
-            // 尝试从字幕文本估算时长（如果包含时间格式如 "00:01:23,456"）
-            if (cue.text != null) {
-                String text = cue.text.toString();
-                // 这里可以添加更多复杂的时间提取逻辑，但这需要更多的上下文
-            }
-            
         } catch (Exception e) {
             Log.d(TAG, "无法通过反射获取字幕结束时间: " + e.getMessage());
         }
         
-        Log.d(TAG, "无法获取字幕结束时间，将使用备用触发机制");
         return -1;
     }
 }
