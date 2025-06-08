@@ -962,7 +962,8 @@ public class SubtitleWordSelectionController {
             // 检查结果是否需要重试
             boolean needRetry = (finalDefinition != null && 
                     (finalDefinition.contains("注意：AI没有使用中文回答") || 
-                     (finalDefinition.contains("美式英语") && finalDefinition.length() < 100)) // 添加对美式英语的检查
+                     (finalDefinition.contains("美式英语") && finalDefinition.length() < 200) ||
+                     (finalDefinition.contains("美式英语的发音") && finalDefinition.length() < 200))
                     ) && mRetryCount < MAX_RETRY_COUNT;
             
             // 回到主线程更新 UI
@@ -974,7 +975,9 @@ public class SubtitleWordSelectionController {
                             // 增加重试计数
                             mRetryCount++;
                             Log.d(TAG, "需要重试，原因: " + 
-                                (finalDefinition.contains("注意：AI没有使用中文回答") ? "AI没有使用中文回答" : "返回内容仅包含'美式英语'"));
+                                (finalDefinition.contains("注意：AI没有使用中文回答") ? "AI没有使用中文回答" : 
+                                 (finalDefinition.contains("美式英语的发音") ? "返回内容仅包含'美式英语的发音'" : 
+                                  "返回内容仅包含'美式英语'")));
                             // 延迟时间随重试次数增加，避免过快请求
                             int delayMs = 500 + (mRetryCount * 100);
                             mHandler.postDelayed(this::translateCurrentWordWithRetry, delayMs);
@@ -984,7 +987,8 @@ public class SubtitleWordSelectionController {
                             // 如果达到最大重试次数但仍未获得中文回答，记录日志
                             if (mRetryCount >= MAX_RETRY_COUNT && 
                                 (finalDefinition.contains("注意：AI没有使用中文回答") || 
-                                 (finalDefinition.contains("美式英语") && finalDefinition.length() < 100))) {
+                                 (finalDefinition.contains("美式英语") && finalDefinition.length() < 200) ||
+                                 (finalDefinition.contains("美式英语的发音") && finalDefinition.length() < 200))) {
                                 Log.w(TAG, "达到最大重试次数" + MAX_RETRY_COUNT + "，但仍未获得有效回答");
                             }
                         }
@@ -1297,7 +1301,7 @@ public class SubtitleWordSelectionController {
                     boolean foundPhonetics = false;
                     
                     // 1. 首先尝试查找"美音："或"美式发音："等明确标记后面的音标
-                    Pattern usPattern = Pattern.compile("(?:美音|【美音】|美式发音|美式音标|音标)[:：]\\s*\\[([^\\]]+)\\]");
+                    Pattern usPattern = Pattern.compile("(?:美音|【美音】|美式发音|美式音标|美式英语|音标)[:：]\\s*\\[([^\\]]+)\\]");
                     Matcher usMatcher = usPattern.matcher(response);
                     if (usMatcher.find()) {
                         String phonetics = usMatcher.group(1);
@@ -1310,7 +1314,7 @@ public class SubtitleWordSelectionController {
                     
                     // 1.1 查找"美音："或"美式发音："等明确标记后面的反斜杠音标格式 /pi:/
                     if (!foundPhonetics) {
-                        Pattern usSlashPattern = Pattern.compile("(?:美音|【美音】|美式发音|美式音标|音标)[:：]\\s*\\/([^\\/]+)\\/");
+                        Pattern usSlashPattern = Pattern.compile("(?:美音|【美音】|美式发音|美式音标|美式英语|音标)[:：]\\s*\\/([^\\/]+)\\/");
                         Matcher usSlashMatcher = usSlashPattern.matcher(response);
                         if (usSlashMatcher.find()) {
                             String phonetics = usSlashMatcher.group(1);
@@ -1413,6 +1417,18 @@ public class SubtitleWordSelectionController {
                     
                     // 从解释内容中彻底移除所有音标和发音相关内容
                     String cleanResponse = removePhoneticFromText(response);
+                    
+                    // 额外清理"美式英语"和周围的符号
+                    cleanResponse = cleanResponse.replaceAll("[（(\\[【]?美式英语[)）\\]】]?", "");
+                    cleanResponse = cleanResponse.replaceAll("[（(\\[【]?美式英语的发音[)）\\]】]?", "");
+                    
+                    // 如果美式英语后面跟着冒号和内容，只保留冒号后的内容
+                    cleanResponse = cleanResponse.replaceAll("美式英语[:：]\\s*", "");
+                    cleanResponse = cleanResponse.replaceAll("美式英语的发音[:：]\\s*", "");
+                    
+                    // 处理可能的空行
+                    cleanResponse = cleanResponse.replaceAll("(?m)^\\s*$\\n", "");
+                    cleanResponse = cleanResponse.replaceAll("\n{3,}", "\n\n");
                     
                     // 检查是否包含中文，如果不包含，添加提示和发送给AI的命令
                     if (!containsChinese(cleanResponse)) {
@@ -2540,10 +2556,10 @@ public class SubtitleWordSelectionController {
      */
     private String removePhoneticFromLine(String line) {
         // 移除整个"音标为：[xxx]"或"美式音标为：[xxx]"的模式
-        String cleanedLine = line.replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\[[^\\]]+\\]", "");
+        String cleanedLine = line.replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语|美式英语的发音)(?:为|是|:|：)?\\s*\\[[^\\]]+\\]", "");
         
         // 移除整个"音标为：/xxx/"或"美式音标为：/xxx/"的模式
-        cleanedLine = cleanedLine.replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\/[^\\/]+\\/", "");
+        cleanedLine = cleanedLine.replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语|美式英语的发音)(?:为|是|:|：)?\\s*\\/[^\\/]+\\/", "");
         
         // 移除方括号音标
         cleanedLine = cleanedLine.replaceAll("\\[\\[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\]", "");
@@ -2552,7 +2568,10 @@ public class SubtitleWordSelectionController {
         cleanedLine = cleanedLine.replaceAll("\\/[\\w\\s\\u0250-\\u02AF\\u02B0-\\u02FF'ˈˌ:ː,.\\-]+\\/", "");
         
         // 移除可能的残留音标说明（如果只有说明没有跟随音标）
-        cleanedLine = cleanedLine.replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*$", "");
+        cleanedLine = cleanedLine.replaceAll("(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语|美式英语的发音)(?:为|是|:|：)?\\s*$", "");
+        
+        // 移除独立的"美式英语"短语及其周围的标点符号
+        cleanedLine = cleanedLine.replaceAll("[（(\\[【]?美式英语[)）\\]】]?", "");
         
         // 移除所有星号
         cleanedLine = cleanedLine.replace("*", "");
@@ -2579,22 +2598,27 @@ public class SubtitleWordSelectionController {
         }
         
         // 检查是否是"美音："等开头后面跟音标的行
-        if (trimmedLine.matches("^\\s*(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\[[^\\]]+\\]\\s*$")) {
+        if (trimmedLine.matches("^\\s*(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语|美式英语的发音)(?:为|是|:|：)?\\s*\\[[^\\]]+\\]\\s*$")) {
             return true;
         }
         
         // 检查是否是"美音："等开头后面跟反斜杠音标的行
-        if (trimmedLine.matches("^\\s*(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*\\/[^\\/]+\\/\\s*$")) {
+        if (trimmedLine.matches("^\\s*(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语|美式英语的发音)(?:为|是|:|：)?\\s*\\/[^\\/]+\\/\\s*$")) {
             return true;
         }
         
         // 检查是否是只包含"发音"或"音标"的行
-        if (trimmedLine.matches("^\\s*(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)(?:为|是|:|：)?\\s*$")) {
+        if (trimmedLine.matches("^\\s*(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语|美式英语的发音)(?:为|是|:|：)?\\s*$")) {
             return true;
         }
         
         // 检查是否是发音部分的标题行（如"【发音】"）
-        if (trimmedLine.matches("^\\s*【(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语)】\\s*$")) {
+        if (trimmedLine.matches("^\\s*【(?:音标|发音|读音|美式音标|英式音标|美音|英音|国际音标|美式英语|美式英语的发音)】\\s*$")) {
+            return true;
+        }
+        
+        // 检查是否只包含"美式英语"及其周围符号的行
+        if (trimmedLine.matches("^\\s*[（(\\[【]?美式英语[)）\\]】]?\\s*$")) {
             return true;
         }
         
