@@ -525,8 +525,11 @@ public class VideoLoaderController extends BasePlayerController {
             // No internet connection or WRONG DATE on the device
             restartEngine = false;
             resultMsg = shortErrorMsg;
-        } else if (error instanceof OutOfMemoryError) {
-            if (getPlayerData().getVideoBufferType() == PlayerData.BUFFER_MEDIUM || getPlayerData().getVideoBufferType() == PlayerData.BUFFER_LOW) {
+        } else if (error instanceof OutOfMemoryError || (error != null && error.getCause() instanceof OutOfMemoryError)) {
+            if (getPlayerTweaksData().getPlayerDataSource() == PlayerTweaksData.PLAYER_DATA_SOURCE_OKHTTP) {
+                // OkHttp has memory leak problems
+                enableFasterDataSource();
+            } else if (getPlayerData().getVideoBufferType() == PlayerData.BUFFER_MEDIUM || getPlayerData().getVideoBufferType() == PlayerData.BUFFER_LOW) {
                 getPlayerTweaksData().enableSectionPlaylist(false);
                 restartEngine = false;
             } else {
@@ -765,11 +768,11 @@ public class VideoLoaderController extends BasePlayerController {
     }
 
     private boolean acceptDashVideo(MediaItemFormatInfo formatInfo) {
-        if ((getPlayerData().isLegacyCodecsForced() || isEmbedPlayer()) && formatInfo.containsUrlFormats()) {
+        if (getPlayerData().isLegacyCodecsForced() && formatInfo.containsUrlFormats()) {
             return false;
         }
 
-        if ((getPlayerTweaksData().isHlsStreamsForced() || isEmbedPlayer()) && formatInfo.isLive() && formatInfo.containsHlsUrl()) {
+        if (getPlayerTweaksData().isHlsStreamsForced() && formatInfo.isLive() && formatInfo.containsHlsUrl()) {
             return false;
         }
 
@@ -792,7 +795,7 @@ public class VideoLoaderController extends BasePlayerController {
     }
 
     private boolean acceptDashLive(MediaItemFormatInfo formatInfo) {
-        if ((getPlayerTweaksData().isHlsStreamsForced() || isEmbedPlayer()) && formatInfo.isLive() && formatInfo.containsHlsUrl()) {
+        if (getPlayerTweaksData().isHlsStreamsForced() && formatInfo.isLive() && formatInfo.containsHlsUrl()) {
             return false;
         }
 
