@@ -217,10 +217,7 @@ import java.util.regex.Pattern;
           ? cue.windowColor : style.windowColor;
     }
     
-    // 即使文本变化，也要重新应用高亮
-    boolean forceUpdate = ENABLE_WORD_HIGHLIGHT && highlightWord != null && !highlightWord.isEmpty();
-    
-    // 检查字幕内容是否变化
+    // 判断字幕内容是否有变化
     boolean cueTextChanged = !areCharSequencesEqual(this.cueText, cue.text);
     
     // 如果字幕内容变化且有监听器，通知监听器
@@ -228,36 +225,8 @@ import java.util.regex.Pattern;
       cueTextChangedListener.onCueTextChanged(cue);
     }
     
-    if (!forceUpdate && areCharSequencesEqual(this.cueText, cue.text)
-        && Util.areEqual(this.cueTextAlignment, cue.textAlignment)
-        && this.cueBitmap == cue.bitmap
-        && this.cueLine == cue.line
-        && this.cueLineType == cue.lineType
-        && Util.areEqual(this.cueLineAnchor, cue.lineAnchor)
-        && this.cuePosition == cue.position
-        && Util.areEqual(this.cuePositionAnchor, cue.positionAnchor)
-        && this.cueSize == cue.size
-        && this.cueBitmapHeight == cue.bitmapHeight
-        && this.applyEmbeddedStyles == applyEmbeddedStyles
-        && this.applyEmbeddedFontSizes == applyEmbeddedFontSizes
-        && this.foregroundColor == style.foregroundColor
-        && this.backgroundColor == style.backgroundColor
-        && this.windowColor == windowColor
-        && this.edgeType == style.edgeType
-        && this.edgeColor == style.edgeColor
-        && Util.areEqual(this.textPaint.getTypeface(), style.typeface)
-        && this.defaultTextSizePx == defaultTextSizePx
-        && this.cueTextSizePx == cueTextSizePx
-        && this.bottomPaddingFraction == bottomPaddingFraction
-        && this.parentLeft == cueBoxLeft
-        && this.parentTop == cueBoxTop
-        && this.parentRight == cueBoxRight
-        && this.parentBottom == cueBoxBottom) {
-      // We can use the cached layout.
-      drawLayout(canvas, isTextCue);
-      return;
-    }
-
+    // 无论之前的状态如何，都重新绘制当前字幕
+    // 这样可以确保不会显示之前的字幕内容
     this.cueText = cue.text;
     this.cueTextAlignment = cue.textAlignment;
     this.cueBitmap = cue.bitmap;
@@ -308,13 +277,13 @@ import java.util.regex.Pattern;
       return;
     }
 
+    // 确保使用的是当前字幕文本，而不是累积的文本
     CharSequence cueText = this.cueText;
     
-    // 处理换行符，确保多行字幕在处理前被正确合并
+    // 处理换行符，确保多行字幕在处理前被正确处理
     if (cueText != null && cueText.toString().contains("\n")) {
       String processedText = cueText.toString().replace("\n", " ").replace("\r", " ");
       cueText = processedText;
-      Log.d(TAG, "处理多行字幕，将换行符替换为空格: " + processedText);
     }
     
     // Remove embedded styling or font size if requested.

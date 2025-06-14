@@ -60,6 +60,9 @@ public final class SubtitleView extends View implements TextOutput {
   private boolean applyEmbeddedFontSizes;
   private CaptionStyleCompat style;
   private float bottomPaddingFraction;
+  
+  // 用于跟踪上一个字幕内容，防止重复显示
+  private String lastSubtitleText = null;
 
   /**
    * 字幕内容变化监听器
@@ -68,10 +71,10 @@ public final class SubtitleView extends View implements TextOutput {
       new SubtitlePainter.OnCueTextChangedListener() {
         @Override
         public void onCueTextChanged(Cue cue) {
-          // 当字幕内容变化时，更新当前字幕
-          // 注意：这里不需要调用setCues，因为字幕内容变化是由painter绘制时检测到的
-          // 实际上cues已经通过setCues方法更新过了
-          invalidate(); // 刷新视图
+          // 当字幕内容变化时，完全重置并更新当前字幕
+          // 注意：这里只需要触发重绘，无需其他操作
+          // 新的字幕会完全替换旧字幕
+          invalidate();
         }
       };
 
@@ -106,11 +109,34 @@ public final class SubtitleView extends View implements TextOutput {
     if (cues != null && cues.size() > 1) {
       cues = cues.subList(cues.size() - 1, cues.size());
     }
-
-    if (this.cues == cues) {
+    
+    // 检查是否有字幕内容
+    if (cues == null || cues.isEmpty()) {
+      if (this.cues != null) {
+        this.cues = null;
+        lastSubtitleText = null;
+        invalidate();
+      }
       return;
     }
+    
+    // 获取当前字幕文本
+    String currentText = "";
+    if (cues.get(0).text != null) {
+      currentText = cues.get(0).text.toString();
+    }
+    
+    // 检查是否与上一个字幕相同（防止重复处理相同字幕）
+    if (this.cues == cues || (lastSubtitleText != null && lastSubtitleText.equals(currentText))) {
+      return;
+    }
+    
+    // 更新上一个字幕文本记录
+    lastSubtitleText = currentText;
+    
+    // 更新cues
     this.cues = cues;
+    
     // Ensure we have sufficient painters.
     int cueCount = (cues == null) ? 0 : cues.size();
     while (painters.size() < cueCount) {
@@ -118,6 +144,7 @@ public final class SubtitleView extends View implements TextOutput {
       painter.setOnCueTextChangedListener(cueTextChangedListener);
       painters.add(painter);
     }
+    
     // Invalidate to trigger drawing.
     invalidate();
   }
