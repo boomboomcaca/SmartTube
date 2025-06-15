@@ -1635,70 +1635,7 @@ public class SubtitleWordSelectionController {
                 try {
                     SpannableStringBuilder builder = new SpannableStringBuilder();
                     
-                    // 获取当前单词，用于检查学习状态
-                    String currentWord = "";
-                    if (mCurrentWordIndex >= 0 && mCurrentWordIndex < mWords.length) {
-                        currentWord = mWords[mCurrentWordIndex];
-                    } else {
-                        // 尝试从高亮信息中获取
-                        currentWord = getActualHighlightedWord();
-                    }
-                    
-                    if (currentWord != null && !currentWord.isEmpty()) {
-                        // 检查单词是否在学习中
-                        boolean isLearning = mVocabularyDatabase.isWordInLearningList(currentWord);
-                        
-                        // 添加学习状态行
-                        String statusLine = isLearning ? 
-                            "【学习中】 按OK切换为[取消]" : 
-                            "【取消】 按OK切换为[学习中]";
-                        
-                        // 为状态行添加样式
-                        SpannableString statusSpan = new SpannableString(statusLine);
-                        
-                        // 设置"学习中"/"取消"的颜色和样式
-                        if (isLearning) {
-                            statusSpan.setSpan(
-                                new ForegroundColorSpan(Color.GREEN), 
-                                0, 
-                                4, // "【学习中】"的长度
-                                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                            );
-                        } else {
-                            statusSpan.setSpan(
-                                new ForegroundColorSpan(Color.GRAY), 
-                                0, 
-                                4, // "【取消】"的长度
-                                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                            );
-                        }
-                        
-                        // 设置提示文字的样式
-                        statusSpan.setSpan(
-                            new ForegroundColorSpan(Color.LTGRAY), 
-                            5, 
-                            statusLine.length(), 
-                            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                        );
-                        
-                        statusSpan.setSpan(
-                            new StyleSpan(android.graphics.Typeface.ITALIC), 
-                            5, 
-                            statusLine.length(), 
-                            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                        );
-                        
-                        statusSpan.setSpan(
-                            new StyleSpan(android.graphics.Typeface.BOLD), 
-                            0, 
-                            4, 
-                            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                        );
-                        
-                        // 添加状态行
-                        builder.append(statusSpan);
-                        builder.append("\n\n");
-                    }
+                    // 移除添加学习状态行的代码，不再显示单词标签和提示信息
                     
                     // 处理原始文本内容
                     String[] lines = text.split("\n");
