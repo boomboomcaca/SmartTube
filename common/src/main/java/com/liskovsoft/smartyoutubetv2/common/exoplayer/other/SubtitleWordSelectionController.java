@@ -51,6 +51,9 @@ public class SubtitleWordSelectionController {
     private final FrameLayout mRootView;
     private final PlaybackPresenter mPlaybackPresenter;
     
+    // 单词数据库
+    private VocabularyDatabase mVocabularyDatabase;
+    
     private boolean mIsWordSelectionMode = false;
     private String mCurrentSubtitleText = "";
     private String[] mWords = new String[0];
@@ -93,6 +96,9 @@ public class SubtitleWordSelectionController {
         mSubtitleView = subtitleView;
         mRootView = rootView;
         mPlaybackPresenter = PlaybackPresenter.instance(context);
+        
+        // 初始化单词数据库
+        mVocabularyDatabase = VocabularyDatabase.getInstance(context);
         
         // 创建选词覆盖层
         createSelectionOverlay();
@@ -383,14 +389,48 @@ public class SubtitleWordSelectionController {
                 // 更新最后点击时间，用于下次双击检测
                 mLastClickTime = clickTime;
                 
-                // 单击逻辑 - 显示单词翻译或隐藏解释
+                // 单击逻辑
                 if (!mIsShowingDefinition) {
+                    // 如果没有显示解释，显示单词翻译
                     translateCurrentWord();
                 } else {
-                    // 修改：OK键不关闭解释窗口，只有返回键才关闭
-                    // hideDefinitionOverlay();
-                    // 对于已经显示的解释窗口，OK按键不做任何操作
-                    Log.d(TAG, "解释窗口已显示，OK按键不做操作");
+                    // 如果已经显示解释，切换单词学习状态
+                    String currentWord = "";
+                    if (mCurrentWordIndex >= 0 && mCurrentWordIndex < mWords.length) {
+                        currentWord = mWords[mCurrentWordIndex];
+                    } else {
+                        Log.e(TAG, "无法获取当前单词，索引无效: " + mCurrentWordIndex);
+                        return true;
+                    }
+                    
+                    // 切换单词学习状态
+                    boolean isLearningWord = mVocabularyDatabase.isWordInLearningList(currentWord);
+                    boolean success = false;
+                    
+                    if (isLearningWord) {
+                        // 如果单词已在学习列表中，从列表中删除
+                        success = mVocabularyDatabase.removeWord(currentWord);
+                        if (success) {
+                            // 更新解释窗口第一行
+                            updateDefinitionFirstLine(currentWord, false);
+                            Log.d(TAG, "单词已从学习列表中删除: " + currentWord);
+                        } else {
+                            Log.e(TAG, "从学习列表中删除单词失败: " + currentWord);
+                        }
+                    } else {
+                        // 如果单词不在学习列表中，添加到列表
+                        success = mVocabularyDatabase.addWord(currentWord);
+                        if (success) {
+                            // 更新解释窗口第一行
+                            updateDefinitionFirstLine(currentWord, true);
+                            Log.d(TAG, "单词已添加到学习列表: " + currentWord);
+                        } else {
+                            Log.e(TAG, "添加单词到学习列表失败: " + currentWord);
+                        }
+                    }
+                    
+                    // 强制刷新字幕，使学习中单词的高亮状态立即生效
+                    refreshSubtitleView();
                 }
                 return true;
                 
@@ -1581,6 +1621,73 @@ public class SubtitleWordSelectionController {
                 // 处理文本，应用不同的样式
                 try {
                     SpannableStringBuilder builder = new SpannableStringBuilder();
+                    
+                    // 获取当前单词，用于检查学习状态
+                    String currentWord = "";
+                    if (mCurrentWordIndex >= 0 && mCurrentWordIndex < mWords.length) {
+                        currentWord = mWords[mCurrentWordIndex];
+                    } else {
+                        // 尝试从高亮信息中获取
+                        currentWord = getActualHighlightedWord();
+                    }
+                    
+                    if (currentWord != null && !currentWord.isEmpty()) {
+                        // 检查单词是否在学习中
+                        boolean isLearning = mVocabularyDatabase.isWordInLearningList(currentWord);
+                        
+                        // 添加学习状态行
+                        String statusLine = isLearning ? 
+                            "【学习中】 按OK切换为[取消]" : 
+                            "【取消】 按OK切换为[学习中]";
+                        
+                        // 为状态行添加样式
+                        SpannableString statusSpan = new SpannableString(statusLine);
+                        
+                        // 设置"学习中"/"取消"的颜色和样式
+                        if (isLearning) {
+                            statusSpan.setSpan(
+                                new ForegroundColorSpan(Color.GREEN), 
+                                0, 
+                                4, // "【学习中】"的长度
+                                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            );
+                        } else {
+                            statusSpan.setSpan(
+                                new ForegroundColorSpan(Color.GRAY), 
+                                0, 
+                                4, // "【取消】"的长度
+                                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            );
+                        }
+                        
+                        // 设置提示文字的样式
+                        statusSpan.setSpan(
+                            new ForegroundColorSpan(Color.LTGRAY), 
+                            5, 
+                            statusLine.length(), 
+                            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                        );
+                        
+                        statusSpan.setSpan(
+                            new StyleSpan(android.graphics.Typeface.ITALIC), 
+                            5, 
+                            statusLine.length(), 
+                            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                        );
+                        
+                        statusSpan.setSpan(
+                            new StyleSpan(android.graphics.Typeface.BOLD), 
+                            0, 
+                            4, 
+                            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                        );
+                        
+                        // 添加状态行
+                        builder.append(statusSpan);
+                        builder.append("\n\n");
+                    }
+                    
+                    // 处理原始文本内容
                     String[] lines = text.split("\n");
                     
                     // 减小段落间距
@@ -1864,21 +1971,26 @@ public class SubtitleWordSelectionController {
             List<Object> painters = (List<Object>) paintersField.get(mSubtitleView);
             
             if (painters != null && !painters.isEmpty()) {
-                // 禁用所有画笔的单词高亮
+                // 只禁用选词高亮，不影响学习中单词的高亮
                 for (Object painter : painters) {
                     try {
-                    // 清除高亮单词
-                    Field highlightWordField = painter.getClass().getDeclaredField("highlightWord");
-                    highlightWordField.setAccessible(true);
-                    highlightWordField.set(painter, null);
-                
-                // 禁用单词高亮
-                        Field enableWordHighlightField = painter.getClass().getDeclaredField("ENABLE_WORD_HIGHLIGHT");
-                enableWordHighlightField.setAccessible(true);
-                enableWordHighlightField.set(null, false);
+                        // 清除高亮单词
+                        Field highlightWordField = painter.getClass().getDeclaredField("highlightWord");
+                        highlightWordField.setAccessible(true);
+                        highlightWordField.set(painter, null);
                         
-                        // 尝试重置任何可能保存高亮状态的字段
-                        resetHighlightRelatedFields(painter);
+                        // 禁用选词高亮，但保持学习中单词高亮功能
+                        Field enableWordHighlightField = painter.getClass().getDeclaredField("ENABLE_WORD_HIGHLIGHT");
+                        enableWordHighlightField.setAccessible(true);
+                        enableWordHighlightField.set(null, false);
+                        
+                        // 确保学习中单词高亮功能保持启用
+                        Field enableLearningWordHighlightField = painter.getClass().getDeclaredField("ENABLE_LEARNING_WORD_HIGHLIGHT");
+                        enableLearningWordHighlightField.setAccessible(true);
+                        enableLearningWordHighlightField.set(null, true);
+                        
+                        // 不要调用resetHighlightRelatedFields，因为它会重置所有高亮相关的字段
+                        // resetHighlightRelatedFields(painter);
                     } catch (Exception e) {
                         Log.e(TAG, "清除单个画笔高亮失败: " + e.getMessage());
                     }
@@ -1887,7 +1999,7 @@ public class SubtitleWordSelectionController {
                 // 强制重绘字幕
                 mSubtitleView.invalidate();
                 
-                Log.d(TAG, "已清除所有字幕高亮");
+                Log.d(TAG, "已清除选词高亮，保持学习中单词高亮");
             }
         } catch (Exception e) {
             Log.e(TAG, "清除字幕高亮失败: " + e.getMessage(), e);
@@ -2664,12 +2776,12 @@ public class SubtitleWordSelectionController {
     private void refreshSubtitleView() {
         if (mSubtitleView != null) {
             try {
-                // 反射获取字幕视图的方法来刷新显示
-                java.lang.reflect.Method invalidateMethod = View.class.getDeclaredMethod("invalidate");
-                invalidateMethod.setAccessible(true);
-                invalidateMethod.invoke(mSubtitleView);
-                
-                Log.d(TAG, "已强制刷新字幕视图");
+                // 获取SubtitleView的当前Cues
+                List<Cue> currentCues = mSubtitleView.getCues();
+                if (currentCues != null && !currentCues.isEmpty()) {
+                    // 手动触发字幕重绘
+                    mSubtitleView.setCues(currentCues);
+                }
             } catch (Exception e) {
                 Log.e(TAG, "刷新字幕视图失败: " + e.getMessage(), e);
             }
@@ -2804,5 +2916,61 @@ public class SubtitleWordSelectionController {
      */
     private String fetchOllamaDefinition(String word, String context, int wordPosition) {
         return fetchOllamaDefinition(word, context, wordPosition, 0);
+    }
+    
+    /**
+     * 更新解释窗口的第一行，显示学习状态
+     * @param word 当前单词
+     * @param isLearning 是否在学习列表中
+     */
+    private void updateDefinitionFirstLine(String word, boolean isLearning) {
+        if (mTextView == null) {
+            Log.e(TAG, "无法更新解释窗口，mTextView为空");
+            return;
+        }
+        
+        try {
+            // 获取当前文本
+            String originalText = mTextView.getText().toString();
+            
+            // 查找第一个换行符位置
+            int firstLineBreak = originalText.indexOf('\n');
+            if (firstLineBreak < 0) {
+                // 如果没有换行符，直接添加状态行
+                String statusLine = "【" + (isLearning ? "学习中" : "取消") + "】 " + word + "\n\n";
+                mTextView.setText(statusLine + originalText);
+                return;
+            }
+            
+            // 查找第二个换行符位置
+            int secondLineBreak = originalText.indexOf('\n', firstLineBreak + 1);
+            if (secondLineBreak < 0) {
+                // 如果只有一行，添加状态行和空行
+                String statusLine = "【" + (isLearning ? "学习中" : "取消") + "】 " + word + "\n\n";
+                String contentText = originalText.substring(firstLineBreak + 1);
+                mTextView.setText(statusLine + contentText);
+                return;
+            }
+            
+            // 提取内容部分（从第二个换行符之后）
+            String contentText = originalText.substring(secondLineBreak + 1);
+            
+            // 创建新的文本，包含状态行、空行和内容
+            String statusLine = "【" + (isLearning ? "学习中" : "取消") + "】 " + word + "\n\n";
+            mTextView.setText(statusLine + contentText);
+            
+            // 重置滚动位置
+            mScrollPosition = 0;
+            mTextView.scrollTo(0, 0);
+            
+            // 显示提示消息
+            MessageHelpers.showMessage(mContext, isLearning ? 
+                    "已添加到学习列表: " + word : 
+                    "已从学习列表移除: " + word);
+            
+            Log.d(TAG, "已更新解释窗口第一行，显示学习状态: " + (isLearning ? "学习中" : "取消"));
+        } catch (Exception e) {
+            Log.e(TAG, "更新解释窗口第一行失败: " + e.getMessage(), e);
+        }
     }
 } 

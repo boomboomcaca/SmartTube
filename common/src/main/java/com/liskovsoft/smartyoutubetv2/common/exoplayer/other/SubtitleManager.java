@@ -104,6 +104,17 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         mPlayerData.setOnChange(this);
         configureSubtitleView();
         
+        // 启用学习中单词高亮功能
+        try {
+            Class<?> subtitlePainterClass = Class.forName("com.google.android.exoplayer2.ui.SubtitlePainter");
+            java.lang.reflect.Field enableLearningWordHighlightField = subtitlePainterClass.getField("ENABLE_LEARNING_WORD_HIGHLIGHT");
+            enableLearningWordHighlightField.setAccessible(true);
+            enableLearningWordHighlightField.set(null, true);
+            Log.d(TAG, "学习中单词高亮功能已启用");
+        } catch (Exception e) {
+            Log.e(TAG, "启用学习中单词高亮功能失败", e);
+        }
+        
         // 初始化字幕选词控制器
         FrameLayout rootView = activity.findViewById(R.id.playback_fragment_root);
         if (rootView != null && mSubtitleView != null) {
@@ -731,5 +742,38 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         }
         
         return -1;
+    }
+
+    public void setSubtitleView(SubtitleView subtitleView) {
+        // 我们不能重新赋值给final变量mSubtitleView，仅启用学习中单词高亮功能
+        
+        // 使用addOnLayoutChangeListener监听布局变化
+        if (mSubtitleView != null) {
+            mSubtitleView.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                // 如果尺寸发生变化，调整轨道之间的间距
+                if (oldBottom - oldTop != bottom - top || oldRight - oldLeft != right - left) {
+                    updateTrackSpacing();
+                }
+            });
+            
+            // 启用学习中单词高亮功能
+            try {
+                Class<?> subtitlePainterClass = Class.forName("com.google.android.exoplayer2.ui.SubtitlePainter");
+                java.lang.reflect.Field enableLearningWordHighlightField = subtitlePainterClass.getField("ENABLE_LEARNING_WORD_HIGHLIGHT");
+                enableLearningWordHighlightField.setAccessible(true);
+                enableLearningWordHighlightField.set(null, true);
+                Log.d(TAG, "学习中单词高亮功能已启用");
+            } catch (Exception e) {
+                Log.e(TAG, "启用学习中单词高亮功能失败", e);
+            }
+        }
+    }
+    
+    /**
+     * 更新轨道间距
+     */
+    private void updateTrackSpacing() {
+        // 如果需要调整轨道间距的实现，可以在这里添加
+        Log.d(TAG, "更新字幕轨道间距");
     }
 }

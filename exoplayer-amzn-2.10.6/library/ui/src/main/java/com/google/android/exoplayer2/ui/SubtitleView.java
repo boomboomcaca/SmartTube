@@ -30,6 +30,7 @@ import com.google.android.exoplayer2.text.TextOutput;
 import com.google.android.exoplayer2.util.Util;
 import java.util.ArrayList;
 import java.util.List;
+import android.util.Log;
 
 /**
  * A view for displaying subtitle {@link Cue}s.
@@ -107,10 +108,27 @@ public final class SubtitleView extends View implements TextOutput {
       cues = cues.subList(cues.size() - 1, cues.size());
     }
 
-    if (this.cues == cues) {
-      return;
-    }
+    boolean cuesChanged = this.cues != cues;
+    
+    // 总是更新cues引用，即使内容相同
     this.cues = cues;
+    
+    // 通知字幕变化，以便更新学习中单词的高亮
+    for (int i = 0; i < painters.size(); i++) {
+        SubtitlePainter painter = painters.get(i);
+        try {
+            java.lang.reflect.Field enableLearningWordHighlightField = painter.getClass().getDeclaredField("ENABLE_LEARNING_WORD_HIGHLIGHT");
+            enableLearningWordHighlightField.setAccessible(true);
+            boolean enableLearningWordHighlight = (boolean) enableLearningWordHighlightField.get(null);
+            
+            if (enableLearningWordHighlight) {
+                android.util.Log.d("SubtitleView", "学习中单词高亮已启用，刷新字幕显示");
+            }
+        } catch (Exception e) {
+            // 忽略异常
+        }
+    }
+    
     // Ensure we have sufficient painters.
     int cueCount = (cues == null) ? 0 : cues.size();
     while (painters.size() < cueCount) {
@@ -118,6 +136,7 @@ public final class SubtitleView extends View implements TextOutput {
       painter.setOnCueTextChangedListener(cueTextChangedListener);
       painters.add(painter);
     }
+    
     // Invalidate to trigger drawing.
     invalidate();
   }

@@ -95,10 +95,18 @@ import java.util.regex.Pattern;
   private static final boolean ENABLE_FIRST_WORD_HIGHLIGHT = false; // 禁用第一个单词高亮
   public static boolean ENABLE_WORD_HIGHLIGHT = false; // 启用指定单词高亮
   
+  // 学习中单词的高亮颜色
+  private static final int LEARNING_WORD_COLOR = Color.GREEN;
+  private static final int LEARNING_WORD_ALPHA = 100;
+  public static boolean ENABLE_LEARNING_WORD_HIGHLIGHT = true; // 启用学习中单词高亮
+  
   // 当前要高亮的单词
   public String highlightWord;
   // 当前要高亮的单词在字幕中的位置
   public int highlightWordPosition = -1;
+  
+  // 单词数据库
+  private static VocabularyDatabase mVocabularyDatabase;
 
   // Styled dimensions.
   private final float outlineWidth;
@@ -169,6 +177,16 @@ import java.util.regex.Pattern;
     paint = new Paint();
     paint.setAntiAlias(true);
     paint.setStyle(Style.FILL);
+    
+    // 初始化单词数据库
+    if (mVocabularyDatabase == null) {
+        try {
+            mVocabularyDatabase = VocabularyDatabase.getInstance(context.getApplicationContext());
+            Log.d(TAG, "单词数据库初始化成功");
+        } catch (Exception e) {
+            Log.e(TAG, "单词数据库初始化失败", e);
+        }
+    }
   }
 
   /**
@@ -217,9 +235,6 @@ import java.util.regex.Pattern;
           ? cue.windowColor : style.windowColor;
     }
     
-    // 即使文本变化，也要重新应用高亮
-    boolean forceUpdate = ENABLE_WORD_HIGHLIGHT && highlightWord != null && !highlightWord.isEmpty();
-    
     // 检查字幕内容是否变化
     boolean cueTextChanged = !areCharSequencesEqual(this.cueText, cue.text);
     
@@ -227,6 +242,12 @@ import java.util.regex.Pattern;
     if (cueTextChanged && cueTextChangedListener != null) {
       cueTextChangedListener.onCueTextChanged(cue);
     }
+    
+    // 强制更新的情况：
+    // 1. 指定单词高亮功能启用且有高亮单词
+    // 2. 学习中单词高亮功能启用 (总是检查学习中单词)
+    boolean forceUpdate = (ENABLE_WORD_HIGHLIGHT && highlightWord != null && !highlightWord.isEmpty()) ||
+                          (ENABLE_LEARNING_WORD_HIGHLIGHT && mVocabularyDatabase != null);
     
     if (!forceUpdate && areCharSequencesEqual(this.cueText, cue.text)
         && Util.areEqual(this.cueTextAlignment, cue.textAlignment)
@@ -253,7 +274,7 @@ import java.util.regex.Pattern;
         && this.parentTop == cueBoxTop
         && this.parentRight == cueBoxRight
         && this.parentBottom == cueBoxBottom) {
-      // We can use the cached layout.
+      // 我们可以使用缓存的布局，但仍然绘制
       drawLayout(canvas, isTextCue);
       return;
     }
@@ -272,7 +293,7 @@ import java.util.regex.Pattern;
     this.applyEmbeddedFontSizes = applyEmbeddedFontSizes;
     this.foregroundColor = style.foregroundColor;
     this.backgroundColor = style.backgroundColor;
-    this.windowColor = windowColor;
+    this.windowColor = style.windowColor;
     this.edgeType = style.edgeType;
     this.edgeColor = style.edgeColor;
     this.textPaint.setTypeface(style.typeface);
@@ -624,6 +645,68 @@ import java.util.regex.Pattern;
     } else if (ENABLE_WORD_HIGHLIGHT) {
       // 如果启用了高亮功能但没有指定高亮单词，记录日志以便调试
       Log.d(TAG, "高亮功能已启用，但未指定高亮单词或单词为空");
+    }
+
+    // 实现学习中单词的绿色高亮
+    if (ENABLE_LEARNING_WORD_HIGHLIGHT && mVocabularyDatabase != null) {
+      SpannableStringBuilder newCueText = new SpannableStringBuilder(cueText);
+      String plainText = newCueText.toString();
+      
+      // 处理可能的换行符，确保多行字幕能正确分词
+      plainText = plainText.replace("\n", " ").replace("\r", " ");
+      
+      Log.d(TAG, "检查学习中单词 - 字幕文本: '" + plainText + "'");
+      
+      // 使用更精确的单词匹配模式
+      Pattern wordPattern = Pattern.compile("\\b[\\w']+\\b");
+      Matcher matcher = wordPattern.matcher(plainText);
+      
+      boolean foundAnyLearningWord = false;
+      
+      // 遍历每个单词
+      while (matcher.find()) {
+        int start = matcher.start();
+        int end = matcher.end();
+        String word = plainText.substring(start, end).toLowerCase(); // 转为小写进行比较
+        
+        // 如果该单词在学习列表中，使用绿色高亮
+        if (!word.isEmpty()) {
+          boolean isLearningWord = false;
+          try {
+            isLearningWord = mVocabularyDatabase.isWordInLearningList(word);
+          } catch (Exception e) {
+            Log.e(TAG, "检查单词是否在学习列表中时出错: " + e.getMessage());
+          }
+          
+          if (isLearningWord) {
+            foundAnyLearningWord = true;
+            // 添加背景色高亮（绿色半透明）
+            int learningColor = LEARNING_WORD_COLOR;
+            learningColor = (learningColor & 0x00FFFFFF) | (LEARNING_WORD_ALPHA << 24); // 设置透明度
+            
+            newCueText.setSpan(
+                new BackgroundColorSpan(learningColor),
+                start,
+                end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            
+            // 添加粗体样式
+            newCueText.setSpan(
+                new StyleSpan(android.graphics.Typeface.BOLD),
+                start,
+                end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                
+            Log.d(TAG, "学习中单词高亮: '" + word + "' 位置: " + start + "-" + end);
+          }
+        }
+      }
+      
+      if (!foundAnyLearningWord) {
+        Log.d(TAG, "字幕中没有找到学习中的单词");
+      }
+      
+      cueText = newCueText;
     }
 
     if (Color.alpha(backgroundColor) > 0) {
