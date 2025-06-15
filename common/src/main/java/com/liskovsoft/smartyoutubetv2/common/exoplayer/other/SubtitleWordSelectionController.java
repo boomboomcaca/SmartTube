@@ -73,7 +73,7 @@ public class SubtitleWordSelectionController {
     
     // 双击检测相关变量
     private long mLastClickTime = 0;
-    private static final long DOUBLE_CLICK_TIME_DELTA = 800; // 双击时间阈值，单位毫秒
+    private static final long DOUBLE_CLICK_TIME_DELTA = 500; // 双击时间阈值，单位毫秒
     
     // 字幕时间记录
     private String mLastSubtitleText = "";
@@ -370,9 +370,18 @@ public class SubtitleWordSelectionController {
                       "ms, 时间差: " + timeDiff + 
                       "ms, 阈值: " + DOUBLE_CLICK_TIME_DELTA + "ms");
                 
+                // 更新最后点击时间，用于下次双击检测
+                mLastClickTime = clickTime;
+                
                 if (timeDiff < DOUBLE_CLICK_TIME_DELTA) {
-                    // 双击操作 - 从当前字幕时间点重新播放并退出选词模式
-                    Log.d(TAG, "检测到双击OK按键，从当前字幕开始时间重新播放");
+                    // 双击操作
+                    Log.d(TAG, "检测到双击OK按键");
+                    
+                    // 无论是否显示解释窗口，也无论单词是否已标记为"学习中"，双击都执行跳转操作
+                    // 如果正在显示解释窗口，先隐藏
+                    if (mIsShowingDefinition) {
+                        hideDefinitionOverlay();
+                    }
                     
                     // 显示提示信息
                     showDoubleClickToast();
@@ -386,52 +395,56 @@ public class SubtitleWordSelectionController {
                     return true;
                 }
                 
-                // 更新最后点击时间，用于下次双击检测
-                mLastClickTime = clickTime;
+                // 延迟处理单击事件，以便检测是否是双击的一部分
+                mHandler.postDelayed(() -> {
+                    // 如果在延迟期间没有收到第二次点击（即不是双击的一部分），则处理单击逻辑
+                    if (System.currentTimeMillis() - mLastClickTime >= DOUBLE_CLICK_TIME_DELTA) {
+                        // 单击逻辑
+                        if (!mIsShowingDefinition) {
+                            // 如果没有显示解释，显示单词翻译
+                            translateCurrentWord();
+                        } else {
+                            // 如果已经显示解释，切换单词学习状态
+                            String currentWord = "";
+                            if (mCurrentWordIndex >= 0 && mCurrentWordIndex < mWords.length) {
+                                currentWord = mWords[mCurrentWordIndex];
+                            } else {
+                                Log.e(TAG, "无法获取当前单词，索引无效: " + mCurrentWordIndex);
+                                return;
+                            }
+                            
+                            // 切换单词学习状态
+                            boolean isLearningWord = mVocabularyDatabase.isWordInLearningList(currentWord);
+                            boolean success = false;
+                            
+                            if (isLearningWord) {
+                                // 如果单词已在学习列表中，从列表中删除
+                                success = mVocabularyDatabase.removeWord(currentWord);
+                                if (success) {
+                                    // 更新解释窗口第一行
+                                    updateDefinitionFirstLine(currentWord, false);
+                                    Log.d(TAG, "单词已从学习列表中删除: " + currentWord);
+                                } else {
+                                    Log.e(TAG, "从学习列表中删除单词失败: " + currentWord);
+                                }
+                            } else {
+                                // 如果单词不在学习列表中，添加到列表
+                                success = mVocabularyDatabase.addWord(currentWord);
+                                if (success) {
+                                    // 更新解释窗口第一行
+                                    updateDefinitionFirstLine(currentWord, true);
+                                    Log.d(TAG, "单词已添加到学习列表: " + currentWord);
+                                } else {
+                                    Log.e(TAG, "添加单词到学习列表失败: " + currentWord);
+                                }
+                            }
+                            
+                            // 强制刷新字幕，使学习中单词的高亮状态立即生效
+                            refreshSubtitleView();
+                        }
+                    }
+                }, DOUBLE_CLICK_TIME_DELTA);
                 
-                // 单击逻辑
-                if (!mIsShowingDefinition) {
-                    // 如果没有显示解释，显示单词翻译
-                    translateCurrentWord();
-                } else {
-                    // 如果已经显示解释，切换单词学习状态
-                    String currentWord = "";
-                    if (mCurrentWordIndex >= 0 && mCurrentWordIndex < mWords.length) {
-                        currentWord = mWords[mCurrentWordIndex];
-                    } else {
-                        Log.e(TAG, "无法获取当前单词，索引无效: " + mCurrentWordIndex);
-                        return true;
-                    }
-                    
-                    // 切换单词学习状态
-                    boolean isLearningWord = mVocabularyDatabase.isWordInLearningList(currentWord);
-                    boolean success = false;
-                    
-                    if (isLearningWord) {
-                        // 如果单词已在学习列表中，从列表中删除
-                        success = mVocabularyDatabase.removeWord(currentWord);
-                        if (success) {
-                            // 更新解释窗口第一行
-                            updateDefinitionFirstLine(currentWord, false);
-                            Log.d(TAG, "单词已从学习列表中删除: " + currentWord);
-                        } else {
-                            Log.e(TAG, "从学习列表中删除单词失败: " + currentWord);
-                        }
-                    } else {
-                        // 如果单词不在学习列表中，添加到列表
-                        success = mVocabularyDatabase.addWord(currentWord);
-                        if (success) {
-                            // 更新解释窗口第一行
-                            updateDefinitionFirstLine(currentWord, true);
-                            Log.d(TAG, "单词已添加到学习列表: " + currentWord);
-                        } else {
-                            Log.e(TAG, "添加单词到学习列表失败: " + currentWord);
-                        }
-                    }
-                    
-                    // 强制刷新字幕，使学习中单词的高亮状态立即生效
-                    refreshSubtitleView();
-                }
                 return true;
                 
             case KeyEvent.KEYCODE_BACK:
@@ -2930,47 +2943,16 @@ public class SubtitleWordSelectionController {
         }
         
         try {
-            // 获取当前文本
-            String originalText = mTextView.getText().toString();
+            // 不再修改解释窗口的内容，保持原有显示
             
-            // 查找第一个换行符位置
-            int firstLineBreak = originalText.indexOf('\n');
-            if (firstLineBreak < 0) {
-                // 如果没有换行符，直接添加状态行
-                String statusLine = "【" + (isLearning ? "学习中" : "取消") + "】 " + word + "\n\n";
-                mTextView.setText(statusLine + originalText);
-                return;
-            }
-            
-            // 查找第二个换行符位置
-            int secondLineBreak = originalText.indexOf('\n', firstLineBreak + 1);
-            if (secondLineBreak < 0) {
-                // 如果只有一行，添加状态行和空行
-                String statusLine = "【" + (isLearning ? "学习中" : "取消") + "】 " + word + "\n\n";
-                String contentText = originalText.substring(firstLineBreak + 1);
-                mTextView.setText(statusLine + contentText);
-                return;
-            }
-            
-            // 提取内容部分（从第二个换行符之后）
-            String contentText = originalText.substring(secondLineBreak + 1);
-            
-            // 创建新的文本，包含状态行、空行和内容
-            String statusLine = "【" + (isLearning ? "学习中" : "取消") + "】 " + word + "\n\n";
-            mTextView.setText(statusLine + contentText);
-            
-            // 重置滚动位置
-            mScrollPosition = 0;
-            mTextView.scrollTo(0, 0);
-            
-            // 显示提示消息
+            // 只显示提示消息
             MessageHelpers.showMessage(mContext, isLearning ? 
                     "已添加到学习列表: " + word : 
                     "已从学习列表移除: " + word);
             
-            Log.d(TAG, "已更新解释窗口第一行，显示学习状态: " + (isLearning ? "学习中" : "取消"));
+            Log.d(TAG, "单词学习状态已更新: " + (isLearning ? "学习中" : "取消"));
         } catch (Exception e) {
-            Log.e(TAG, "更新解释窗口第一行失败: " + e.getMessage(), e);
+            Log.e(TAG, "更新单词学习状态失败: " + e.getMessage(), e);
         }
     }
 } 
