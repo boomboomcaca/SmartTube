@@ -73,7 +73,7 @@ public class SubtitleWordSelectionController {
     
     // 双击检测相关变量
     private long mLastClickTime = 0;
-    private static final long DOUBLE_CLICK_TIME_DELTA = 500; // 双击时间阈值，单位毫秒
+    private static final long DOUBLE_CLICK_TIME_DELTA = 200; // 双击时间阈值，单位毫秒
     
     // 字幕时间记录
     private String mLastSubtitleText = "";
