@@ -1181,7 +1181,7 @@ public class SubtitleWordSelectionController {
             }
             
             // 构建请求JSON
-            String requestJson = "{\"model\":\"qwen3:latest\",\"stream\":false,\"prompt\":\"" + 
+            String requestJson = "{\"model\":\"qwen3:latest\",\"stream\":false,\"think\":false,\"prompt\":\"" + 
                                   prompt.replace("\"", "\\\"").replace("\n", "\\n") + 
                                   "\"}";
             
