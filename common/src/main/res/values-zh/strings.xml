@@ -589,6 +589,7 @@
   <string name="content_block_stop_excluding_channel">停止排除此频道</string>
   <string name="player_chapter_notification">章节快速前进通知</string>
   <string name="subtitle_remember">记住每个频道的字幕开启状态</string>
+  <string name="subtitle_auto_select_last_word">字幕结束时自动选择最后一个单词</string>
   <string name="amazon_frame_drop_fix">掉帧修正#2</string>
   <string name="amazon_frame_drop_fix_desc">适用于亚马逊设备。也可用于其他设备。</string>
   <string name="default_stack_desc">内置网络堆栈。在某些情况下稳定性更好。</string>
