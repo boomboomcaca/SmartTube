@@ -26,7 +26,6 @@ public class VocabularyDatabase extends SQLiteOpenHelper {
     // 字段名
     private static final String KEY_ID = "id";
     private static final String KEY_WORD = "word";
-    private static final String KEY_TIMESTAMP = "timestamp";
     
     // 单例实例
     private static VocabularyDatabase sInstance;
@@ -56,8 +55,7 @@ public class VocabularyDatabase extends SQLiteOpenHelper {
         String CREATE_WORDS_TABLE = "CREATE TABLE " + TABLE_WORDS +
                 "(" +
                 KEY_ID + " INTEGER PRIMARY KEY," +
-                KEY_WORD + " TEXT UNIQUE," +
-                KEY_TIMESTAMP + " INTEGER" +
+                KEY_WORD + " TEXT UNIQUE" +
                 ")";
         db.execSQL(CREATE_WORDS_TABLE);
         Log.d(TAG, "数据库表已创建");
@@ -88,10 +86,9 @@ public class VocabularyDatabase extends SQLiteOpenHelper {
         SQLiteDatabase db = this.getWritableDatabase();
         ContentValues values = new ContentValues();
         values.put(KEY_WORD, word);
-        values.put(KEY_TIMESTAMP, System.currentTimeMillis());
         
-        // 插入行，如果单词已存在则替换（更新时间戳）
-        long id = db.insertWithOnConflict(TABLE_WORDS, null, values, SQLiteDatabase.CONFLICT_REPLACE);
+        // 插入行，如果单词已存在则忽略
+        long id = db.insertWithOnConflict(TABLE_WORDS, null, values, SQLiteDatabase.CONFLICT_IGNORE);
         
         if (id == -1) {
             Log.e(TAG, "添加单词失败: " + word);
@@ -170,7 +167,7 @@ public class VocabularyDatabase extends SQLiteOpenHelper {
         List<String> wordList = new ArrayList<>();
         
         String selectQuery = "SELECT " + KEY_WORD + " FROM " + TABLE_WORDS + 
-                             " ORDER BY " + KEY_TIMESTAMP + " DESC";
+                             " ORDER BY " + KEY_ID + " DESC";
         
         SQLiteDatabase db = this.getReadableDatabase();
         Cursor cursor = null;

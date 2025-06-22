@@ -2776,7 +2776,6 @@ public class SubtitleWordSelectionController {
             
             // 使用记录的字幕变化时间
             view.setPositionMs(mLastSubtitleChangeTime);
-            MessageHelpers.showMessage(mContext, "跳转到字幕起始时间: " + formatTime(mLastSubtitleChangeTime));
         } else {
             // 没有记录的字幕变化时间，退回到使用当前位置
             Log.w(TAG, "没有记录的字幕变化时间，使用当前位置");
@@ -2877,19 +2876,6 @@ public class SubtitleWordSelectionController {
         if (mTextView == null) {
             Log.e(TAG, "无法更新解释窗口，mTextView为空");
             return;
-        }
-        
-        try {
-            // 不再修改解释窗口的内容，保持原有显示
-            
-            // 只显示提示消息
-            MessageHelpers.showMessage(mContext, isLearning ? 
-                    "已添加到学习列表: " + word : 
-                    "已从学习列表移除: " + word);
-            
-            Log.d(TAG, "单词学习状态已更新: " + (isLearning ? "学习中" : "取消"));
-        } catch (Exception e) {
-            Log.e(TAG, "更新单词学习状态失败: " + e.getMessage(), e);
         }
     }
 } 
