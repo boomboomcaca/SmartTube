@@ -73,7 +73,7 @@ public class SubtitleWordSelectionController {
     
     // 双击检测相关变量
     private long mLastClickTime = 0;
-    private static final long DOUBLE_CLICK_TIME_DELTA = 200; // 双击时间阈值，单位毫秒
+    private static final long DOUBLE_CLICK_TIME_DELTA = 300; // 双击时间阈值，单位毫秒
     
     // 字幕时间记录
     private String mLastSubtitleText = "";
@@ -152,7 +152,6 @@ public class SubtitleWordSelectionController {
         // 确保字幕文本存在
         if (mSubtitleView == null) {
             Log.d(TAG, "无法进入选词模式：字幕视图为空");
-            MessageHelpers.showMessage(mContext, R.string.no_subtitle_available);
             return;
         }
         
@@ -162,7 +161,6 @@ public class SubtitleWordSelectionController {
         // 验证字幕文本
         if (!hasSubtitleText()) {
             Log.d(TAG, "无法进入选词模式：没有字幕文本");
-            MessageHelpers.showMessage(mContext, R.string.no_subtitle_available);
             return;
         }
         
@@ -190,7 +188,6 @@ public class SubtitleWordSelectionController {
             // 如果仍然没有单词，则显示消息并退出选词模式
             if (mWords.length == 0) {
                 Log.d(TAG, "仍然没有找到可选择的单词，退出选词模式");
-                MessageHelpers.showMessage(mContext, R.string.no_subtitle_available);
                 mIsWordSelectionMode = false;
             return;
             }

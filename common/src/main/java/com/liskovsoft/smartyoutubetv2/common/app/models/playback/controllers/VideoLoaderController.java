@@ -355,7 +355,10 @@ public class VideoLoaderController extends BasePlayerController {
             mSuggestionsController.loadSuggestions(getVideo());
             bgImageUrl = getVideo().getBackgroundUrl();
 
-            if (formatInfo.isBotCheckError()) {
+            if (formatInfo.getPlayabilityStatus() != null && 
+                    (formatInfo.getPlayabilityStatus().contains("CAPTCHA") || 
+                     formatInfo.getPlayabilityStatus().contains("bot") || 
+                     formatInfo.getPlayabilityStatus().contains("Bot"))) {
                 YouTubeServiceManager.instance().applyNoPlaybackFix();
                 scheduleRebootAppTimer(5_000);
             } else { // 18+ video or the video is hidden/removed
