@@ -2810,9 +2810,6 @@ public class SubtitleWordSelectionController {
      */
     private void showDoubleClickToast() {
         try {
-            // 显示提示信息
-            MessageHelpers.showMessage(mContext, "检测到双击，从字幕开始时间重新播放");
-            
             // 记录日志
             Log.d(TAG, "显示双击提示信息");
         } catch (Exception e) {
