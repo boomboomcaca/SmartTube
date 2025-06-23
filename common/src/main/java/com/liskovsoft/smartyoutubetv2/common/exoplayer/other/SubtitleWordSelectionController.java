@@ -200,7 +200,7 @@ public class SubtitleWordSelectionController {
             mCurrentWordIndex = mWords.length - 1; // 从最后一个单词开始
         }
         
-        // 高亮显示当前单词
+        // 高亮显示当前单词（highlightCurrentWord会检查是否是学习中单词并自动显示翻译）
         highlightCurrentWord();
         
         // 记录日志
@@ -399,6 +399,8 @@ public class SubtitleWordSelectionController {
                         // 单击逻辑
                         if (!mIsShowingDefinition) {
                             // 如果没有显示解释，显示单词翻译
+                            // 这里不需要自动显示翻译，因为在highlightCurrentWord中已经处理了学习中单词的自动显示
+                            // 如果当前不是学习中的单词，则显示翻译
                             translateCurrentWord();
                         } else {
                             // 如果已经显示解释，切换单词学习状态
@@ -797,39 +799,55 @@ public class SubtitleWordSelectionController {
      * 选择下一个单词
      */
     private void selectNextWord() {
-        if (mWords.length == 0) {
-            return;
+        if (mCurrentWordIndex < mWords.length - 1) {
+            mCurrentWordIndex++;
+            Log.d(TAG, "选择下一个单词: " + mWords[mCurrentWordIndex] + " 索引: " + mCurrentWordIndex);
+            highlightCurrentWord();
         }
-        
-        mCurrentWordIndex = (mCurrentWordIndex + 1) % mWords.length;
-        highlightCurrentWord();
     }
     
     /**
      * 选择上一个单词
      */
     private void selectPreviousWord() {
-        if (mWords.length == 0) {
-            return;
+        if (mCurrentWordIndex > 0) {
+            mCurrentWordIndex--;
+            Log.d(TAG, "选择上一个单词: " + mWords[mCurrentWordIndex] + " 索引: " + mCurrentWordIndex);
+            highlightCurrentWord();
         }
-        
-        mCurrentWordIndex = (mCurrentWordIndex - 1 + mWords.length) % mWords.length;
-        highlightCurrentWord();
     }
     
     /**
      * 高亮显示当前单词
      */
     private void highlightCurrentWord() {
-        if (mWords.length == 0 || mCurrentWordIndex >= mWords.length) {
+        // 确保单词索引有效
+        if (mWords.length == 0 || mWordPositions.length != mWords.length) {
+            Log.d(TAG, "无法高亮单词：单词列表为空或位置数组不匹配");
             return;
         }
         
-        String currentWord = mWords[mCurrentWordIndex];
-        int currentPosition = mWordPositions.length > mCurrentWordIndex ? mWordPositions[mCurrentWordIndex] : -1;
+        // 确保索引在有效范围内
+        if (mCurrentWordIndex < 0) {
+            mCurrentWordIndex = 0;
+        } else if (mCurrentWordIndex >= mWords.length) {
+            mCurrentWordIndex = mWords.length - 1;
+        }
         
-        // 在字幕中高亮显示当前单词，并传递位置信息
-        highlightWordInSubtitle(currentWord, currentPosition);
+        // 获取当前单词和位置
+        String word = mWords[mCurrentWordIndex];
+        int wordPosition = mWordPositions[mCurrentWordIndex];
+        
+        // 高亮显示当前单词
+        highlightWordInSubtitle(word, wordPosition);
+        
+        // 检查单词是否在学习列表中，如果是，自动显示翻译窗口
+        if (mVocabularyDatabase != null && mVocabularyDatabase.isWordInLearningList(word)) {
+            // 如果没有显示解释，自动显示单词翻译
+            if (!mIsShowingDefinition) {
+                translateCurrentWord();
+            }
+        }
     }
     
     /**
