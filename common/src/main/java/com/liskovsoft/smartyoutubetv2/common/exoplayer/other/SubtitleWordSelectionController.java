@@ -39,6 +39,14 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.animation.AlphaAnimation;
 import android.os.Handler;
 import java.lang.reflect.Method;
+import java.io.OutputStream;
+import java.io.InputStream;
+import org.json.JSONObject;
+import android.media.AudioManager;
+import android.media.MediaPlayer;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 
 /**
  * 控制器类，用于管理字幕选词功能
@@ -90,6 +98,14 @@ public class SubtitleWordSelectionController {
     // 在类的成员变量区域添加重试计数器和最大重试次数
     private int mRetryCount = 0;
     private static final int MAX_RETRY_COUNT = 10;  // 最大重试次数，防止无限循环
+    
+    // Kokoro TTS API相关变量
+    private static final String KOKORO_TTS_API_URL = "http://192.168.1.113:5066/v1/audio/speech";
+    private static final String TTS_LANGUAGE = "英语";
+    private static final String TTS_VOICE = "af_jessica";
+    private static final String TTS_SPEED = "1";
+    private MediaPlayer mMediaPlayer;
+    private boolean mTtsEnabled = true; // 是否启用TTS功能
     
     public SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
         mContext = context;
@@ -1071,35 +1087,13 @@ public class SubtitleWordSelectionController {
      * @return 实际高亮的单词，如果无法获取则返回null
      */
     private String getActualHighlightedWord() {
-        if (mSubtitleView == null) {
-            return null;
+        if (mIsWordSelectionMode && mWords != null && mCurrentWordIndex >= 0 && mCurrentWordIndex < mWords.length) {
+            // 返回当前选中的单词
+            String word = mWords[mCurrentWordIndex];
+            // 单词可能包含标点，去除标点
+            return word.replaceAll("[^a-zA-Z0-9\\u4e00-\\u9fa5]", "").trim();
         }
-        
-        try {
-            // 通过反射获取 SubtitleView 的内部实现
-            Field paintersField = mSubtitleView.getClass().getDeclaredField("painters");
-            paintersField.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            List<Object> painters = (List<Object>) paintersField.get(mSubtitleView);
-            
-            if (painters != null && !painters.isEmpty()) {
-                for (Object painter : painters) {
-                    // 获取当前高亮的单词
-                    Field highlightWordField = painter.getClass().getDeclaredField("highlightWord");
-                    highlightWordField.setAccessible(true);
-                    String highlightedWord = (String) highlightWordField.get(painter);
-                    
-                    if (highlightedWord != null && !highlightedWord.isEmpty()) {
-                        Log.d(TAG, "从字幕获取实际高亮单词: " + highlightedWord);
-                        return highlightedWord;
-                    }
-                }
-            }
-                } catch (Exception e) {
-            Log.e(TAG, "获取实际高亮单词失败: " + e.getMessage(), e);
-        }
-        
-        return null;
+        return "";
     }
     
     /**
@@ -1643,6 +1637,10 @@ public class SubtitleWordSelectionController {
             if (mSelectionOverlay.getParent() == null) {
                 mRootView.addView(mSelectionOverlay);
             }
+            
+            // 获取当前单词并朗读
+            String currentWord = getActualHighlightedWord();
+            speakWord(currentWord);
             
             // 设置文本内容
             if (mTextView != null) {
@@ -2706,32 +2704,25 @@ public class SubtitleWordSelectionController {
      * 退出选词模式
      */
     public void exitWordSelectionMode() {
-        if (!mIsWordSelectionMode) {
-            return;
-        }
-        
-        // 隐藏选词覆盖层
-        hideSelectionOverlay();
-        
-        // 清除字幕中的高亮显示
-        clearSubtitleHighlight();
-        
-        // 重置选择的单词
-        mCurrentWordIndex = 0;
-        mWords = new String[0];
-        mWordPositions = new int[0];
-        
-        // 退出选词模式
-        mIsWordSelectionMode = false;
-        mIsShowingDefinition = false;
-        
-        // 强制刷新字幕视图，确保高亮完全消失
-        refreshSubtitleView();
-        
-        // 恢复播放
-        PlaybackView view = mPlaybackPresenter.getView();
-        if (view != null) {
-            view.setPlayWhenReady(true);
+        if (mIsWordSelectionMode) {
+            // 隐藏覆盖层
+            hideSelectionOverlay();
+            
+            // 停止TTS播放
+            if (mMediaPlayer != null && mMediaPlayer.isPlaying()) {
+                mMediaPlayer.stop();
+                mMediaPlayer.release();
+                mMediaPlayer = null;
+            }
+            
+            // 清除字幕高亮
+            clearSubtitleHighlight();
+            
+            // 重置状态
+            mIsWordSelectionMode = false;
+            mIsShowingDefinition = false;
+            
+            Log.d(TAG, "退出选词模式");
         }
     }
     
@@ -2888,6 +2879,104 @@ public class SubtitleWordSelectionController {
         if (mTextView == null) {
             Log.e(TAG, "无法更新解释窗口，mTextView为空");
             return;
+        }
+    }
+    
+    /**
+     * 使用Kokoro TTS API朗读单词
+     * @param word 要朗读的单词
+     */
+    private void speakWord(String word) {
+        if (!mTtsEnabled || word == null || word.isEmpty()) {
+            return;
+        }
+        
+        // 在后台线程中执行网络请求
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                // 准备请求URL
+                URL url = new URL(KOKORO_TTS_API_URL);
+                
+                // 打开连接
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("POST");
+                connection.setRequestProperty("Content-Type", "application/json");
+                connection.setRequestProperty("Accept", "audio/wav");
+                connection.setDoOutput(true);
+                
+                // 准备JSON请求体
+                JSONObject requestBody = new JSONObject();
+                requestBody.put("text", word);
+                requestBody.put("language", TTS_LANGUAGE);
+                requestBody.put("voice", TTS_VOICE);
+                requestBody.put("speed", TTS_SPEED);
+                
+                // 发送请求
+                try (OutputStream os = connection.getOutputStream()) {
+                    byte[] input = requestBody.toString().getBytes("UTF-8");
+                    os.write(input, 0, input.length);
+                }
+                
+                // 检查响应代码
+                int responseCode = connection.getResponseCode();
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    // 读取音频数据
+                    try (InputStream inputStream = connection.getInputStream()) {
+                        // 将音频数据保存到临时文件
+                        File tempFile = File.createTempFile("tts_", ".wav", mContext.getCacheDir());
+                        try (FileOutputStream fileOutputStream = new FileOutputStream(tempFile)) {
+                            byte[] buffer = new byte[4096];
+                            int bytesRead;
+                            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                                fileOutputStream.write(buffer, 0, bytesRead);
+                            }
+                        }
+                        
+                        // 播放音频
+                        playAudio(tempFile.getAbsolutePath());
+                        
+                        Log.d(TAG, "TTS音频生成成功：" + word);
+                    }
+                } else {
+                    Log.e(TAG, "TTS请求失败，响应码：" + responseCode);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "TTS请求异常：" + e.getMessage(), e);
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+        }).start();
+    }
+    
+    /**
+     * 播放音频文件
+     * @param filePath 音频文件路径
+     */
+    private void playAudio(String filePath) {
+        try {
+            // 释放之前的MediaPlayer资源
+            if (mMediaPlayer != null) {
+                if (mMediaPlayer.isPlaying()) {
+                    mMediaPlayer.stop();
+                }
+                mMediaPlayer.release();
+            }
+            
+            // 创建新的MediaPlayer
+            mMediaPlayer = new MediaPlayer();
+            mMediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+            mMediaPlayer.setDataSource(filePath);
+            mMediaPlayer.setOnPreparedListener(mp -> mp.start());
+            mMediaPlayer.setOnCompletionListener(mp -> {
+                // 播放完成后删除临时文件
+                new File(filePath).delete();
+            });
+            mMediaPlayer.prepareAsync();
+        } catch (Exception e) {
+            Log.e(TAG, "播放音频失败：" + e.getMessage(), e);
         }
     }
 } 
