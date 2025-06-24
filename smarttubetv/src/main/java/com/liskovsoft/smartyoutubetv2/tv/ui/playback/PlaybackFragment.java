@@ -1137,6 +1137,12 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
         Log.d(TAG, "Destroying PlaybackFragment...");
 
+        // 释放字幕管理器资源
+        if (mSubtitleManager != null) {
+            mSubtitleManager.release();
+            mSubtitleManager = null;
+        }
+
         // Fix situations when engine didn't properly destroyed.
         // E.g. after closing dialogs.
         releasePlayer();

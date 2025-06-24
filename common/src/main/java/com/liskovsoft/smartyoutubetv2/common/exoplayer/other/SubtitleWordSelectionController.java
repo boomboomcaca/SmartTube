@@ -47,6 +47,7 @@ import android.media.MediaPlayer;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import android.speech.tts.TextToSpeech;
 
 /**
  * 控制器类，用于管理字幕选词功能
@@ -107,6 +108,13 @@ public class SubtitleWordSelectionController {
     private MediaPlayer mMediaPlayer;
     private boolean mTtsEnabled = true; // 是否启用TTS功能
     
+    // 添加Android内置TTS引擎相关变量
+    private android.speech.tts.TextToSpeech mAndroidTts;
+    private boolean mIsAndroidTtsInitialized = false;
+    private boolean mUseAndroidTts = false; // 是否使用Android内置TTS
+    private int mKokoroTtsFailCount = 0;
+    private static final int MAX_TTS_FAIL_COUNT = 3; // 允许的最大失败次数，超过则切换到Android TTS
+    
     public SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
         mContext = context;
         mSubtitleView = subtitleView;
@@ -119,8 +127,32 @@ public class SubtitleWordSelectionController {
         // 创建选词覆盖层
         createSelectionOverlay();
         
+        // 初始化Android TTS引擎
+        initAndroidTts();
+        
         // 延迟初始化，确保所有组件都已准备好
         mHandler.postDelayed(this::initializeController, 1000);
+    }
+    
+    /**
+     * 初始化Android内置TTS引擎
+     */
+    private void initAndroidTts() {
+        try {
+            mAndroidTts = new android.speech.tts.TextToSpeech(mContext, status -> {
+                if (status == android.speech.tts.TextToSpeech.SUCCESS) {
+                    mIsAndroidTtsInitialized = true;
+                    mAndroidTts.setLanguage(java.util.Locale.US); // 设置美式英语
+                    Log.d(TAG, "Android TTS引擎初始化成功");
+                } else {
+                    Log.e(TAG, "无法初始化Android TTS引擎，状态: " + status);
+                    mIsAndroidTtsInitialized = false;
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "初始化Android TTS引擎时出错: " + e.getMessage(), e);
+            mIsAndroidTtsInitialized = false;
+        }
     }
     
     /**
@@ -2704,26 +2736,27 @@ public class SubtitleWordSelectionController {
      * 退出选词模式
      */
     public void exitWordSelectionMode() {
-        if (mIsWordSelectionMode) {
-            // 隐藏覆盖层
-            hideSelectionOverlay();
-            
-            // 停止TTS播放
-            if (mMediaPlayer != null && mMediaPlayer.isPlaying()) {
-                mMediaPlayer.stop();
-                mMediaPlayer.release();
-                mMediaPlayer = null;
-            }
-            
-            // 清除字幕高亮
-            clearSubtitleHighlight();
-            
-            // 重置状态
-            mIsWordSelectionMode = false;
-            mIsShowingDefinition = false;
-            
-            Log.d(TAG, "退出选词模式");
+        if (!mIsWordSelectionMode) {
+            return;
         }
+        
+        // 清除高亮显示
+        clearSubtitleHighlight();
+        
+        // 隐藏选词覆盖层和解释窗口
+        hideDefinitionOverlay();
+        hideSelectionOverlay();
+        
+        // 重置状态
+        mIsWordSelectionMode = false;
+        mIsShowingDefinition = false;
+        
+        // 如果PlaybackPresenter存在，恢复播放
+        if (mPlaybackPresenter != null && mPlaybackPresenter.getView() != null) {
+            mPlaybackPresenter.getView().setPlayWhenReady(true);
+        }
+        
+        Log.d(TAG, "已退出选词模式");
     }
     
     /**
@@ -2883,11 +2916,34 @@ public class SubtitleWordSelectionController {
     }
     
     /**
+     * 使用Android内置TTS朗读单词
+     * @param word 要朗读的单词
+     */
+    private void speakWordWithAndroidTts(String word) {
+        if (mIsAndroidTtsInitialized && mAndroidTts != null) {
+            try {
+                mAndroidTts.speak(word, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "word_tts_" + System.currentTimeMillis());
+                Log.d(TAG, "正在使用Android TTS朗读: " + word);
+            } catch (Exception e) {
+                Log.e(TAG, "Android TTS朗读失败: " + e.getMessage(), e);
+            }
+        } else {
+            Log.e(TAG, "Android TTS未初始化，无法朗读");
+        }
+    }
+    
+    /**
      * 使用Kokoro TTS API朗读单词
      * @param word 要朗读的单词
      */
     private void speakWord(String word) {
         if (!mTtsEnabled || word == null || word.isEmpty()) {
+            return;
+        }
+        
+        // 如果已经切换到Android TTS模式，或者达到了失败次数上限
+        if (mUseAndroidTts || mKokoroTtsFailCount >= MAX_TTS_FAIL_COUNT) {
+            speakWordWithAndroidTts(word);
             return;
         }
         
@@ -2897,6 +2953,7 @@ public class SubtitleWordSelectionController {
             try {
                 // 准备请求URL
                 URL url = new URL(KOKORO_TTS_API_URL);
+                Log.d(TAG, "TTS准备请求URL: " + KOKORO_TTS_API_URL);
                 
                 // 打开连接
                 connection = (HttpURLConnection) url.openConnection();
@@ -2907,19 +2964,25 @@ public class SubtitleWordSelectionController {
                 
                 // 准备JSON请求体
                 JSONObject requestBody = new JSONObject();
-                requestBody.put("text", word);
+                requestBody.put("input", word);  // 将"text"改为"input"
                 requestBody.put("language", TTS_LANGUAGE);
                 requestBody.put("voice", TTS_VOICE);
                 requestBody.put("speed", TTS_SPEED);
                 
+                // 记录请求内容
+                String requestBodyStr = requestBody.toString();
+                Log.d(TAG, "TTS请求内容: " + requestBodyStr);
+                
                 // 发送请求
                 try (OutputStream os = connection.getOutputStream()) {
-                    byte[] input = requestBody.toString().getBytes("UTF-8");
+                    byte[] input = requestBodyStr.getBytes("UTF-8");
                     os.write(input, 0, input.length);
                 }
                 
                 // 检查响应代码
                 int responseCode = connection.getResponseCode();
+                Log.d(TAG, "TTS响应码: " + responseCode);
+                
                 if (responseCode == HttpURLConnection.HTTP_OK) {
                     // 读取音频数据
                     try (InputStream inputStream = connection.getInputStream()) {
@@ -2936,16 +2999,53 @@ public class SubtitleWordSelectionController {
                         // 播放音频
                         playAudio(tempFile.getAbsolutePath());
                         
+                        // 重置失败计数器
+                        mKokoroTtsFailCount = 0;
+                        
                         Log.d(TAG, "TTS音频生成成功：" + word);
                     }
                 } else {
-                    Log.e(TAG, "TTS请求失败，响应码：" + responseCode);
+                    // 增加失败计数
+                    mKokoroTtsFailCount++;
+                    
+                    // 尝试读取错误响应
+                    String errorMessage;
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(connection.getErrorStream()))) {
+                        StringBuilder response = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            response.append(line);
+                        }
+                        errorMessage = response.toString();
+                        Log.e(TAG, "TTS请求失败，响应码：" + responseCode + ", 错误信息: " + errorMessage);
+                    } catch (Exception e) {
+                        Log.e(TAG, "TTS请求失败，响应码：" + responseCode + ", 无法读取错误详情", e);
+                    }
+                    
+                    // 如果达到失败次数上限，切换到Android TTS
+                    if (mKokoroTtsFailCount >= MAX_TTS_FAIL_COUNT) {
+                        Log.d(TAG, "TTS API连续失败次数达到" + MAX_TTS_FAIL_COUNT + "，切换到Android TTS");
+                        mUseAndroidTts = true;
+                        speakWordWithAndroidTts(word);
+                    }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "TTS请求异常：" + e.getMessage(), e);
+                // 增加失败计数
+                mKokoroTtsFailCount++;
+                
+                Log.e(TAG, "TTS请求异常：" + e.getClass().getName() + ": " + e.getMessage(), e);
+                
+                // 如果达到失败次数上限，切换到Android TTS
+                if (mKokoroTtsFailCount >= MAX_TTS_FAIL_COUNT) {
+                    Log.d(TAG, "TTS API连续失败次数达到" + MAX_TTS_FAIL_COUNT + "，切换到Android TTS");
+                    mUseAndroidTts = true;
+                    speakWordWithAndroidTts(word);
+                }
             } finally {
                 if (connection != null) {
                     connection.disconnect();
+                    Log.d(TAG, "TTS连接已关闭");
                 }
             }
         }).start();
@@ -2977,6 +3077,43 @@ public class SubtitleWordSelectionController {
             mMediaPlayer.prepareAsync();
         } catch (Exception e) {
             Log.e(TAG, "播放音频失败：" + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 释放资源
+     * 在Activity或Fragment销毁时调用
+     */
+    public void release() {
+        // 确保退出选词模式
+        exitWordSelectionMode();
+        
+        // 释放Android TTS引擎资源
+        if (mAndroidTts != null) {
+            try {
+                mAndroidTts.stop();
+                mAndroidTts.shutdown();
+                Log.d(TAG, "Android TTS引擎已释放");
+            } catch (Exception e) {
+                Log.e(TAG, "释放Android TTS引擎时出错: " + e.getMessage(), e);
+            } finally {
+                mAndroidTts = null;
+                mIsAndroidTtsInitialized = false;
+            }
+        }
+        
+        // 释放MediaPlayer资源
+        if (mMediaPlayer != null) {
+            try {
+                if (mMediaPlayer.isPlaying()) {
+                    mMediaPlayer.stop();
+                }
+                mMediaPlayer.release();
+                mMediaPlayer = null;
+                Log.d(TAG, "MediaPlayer已释放");
+            } catch (Exception e) {
+                Log.e(TAG, "释放MediaPlayer时出错: " + e.getMessage(), e);
+            }
         }
     }
 } 

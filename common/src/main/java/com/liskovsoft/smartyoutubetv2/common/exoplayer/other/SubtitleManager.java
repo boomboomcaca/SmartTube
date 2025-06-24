@@ -776,4 +776,33 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         // 如果需要调整轨道间距的实现，可以在这里添加
         Log.d(TAG, "更新字幕轨道间距");
     }
+
+    /**
+     * 释放资源
+     * 在活动销毁时调用
+     */
+    public void release() {
+        // 释放字幕选词控制器资源
+        if (mWordSelectionController != null) {
+            mWordSelectionController.release();
+            mWordSelectionController = null;
+            Log.d(TAG, "字幕选词控制器资源已释放");
+        }
+        
+        // 移除所有回调和定时器
+        if (mHandler != null) {
+            mHandler.removeCallbacks(mAutoSelectWordRunnable);
+            mHandler.removeCallbacks(mPeriodicCheckRunnable);
+            Log.d(TAG, "字幕管理器定时器已移除");
+        }
+        
+        // 重置状态
+        resetWordSelectionState();
+        
+        // 解除播放器引用
+        if (mPlayer != null) {
+            mPlayer.removeTextOutput(this);
+            mPlayer = null;
+        }
+    }
 }
