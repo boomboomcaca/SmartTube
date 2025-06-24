@@ -110,6 +110,9 @@ public class SubtitleWordSelectionController {
     private MediaPlayer mMediaPlayer;
     private boolean mTtsEnabled = true; // 是否启用TTS功能
     
+    // 在类的成员变量区域添加当前音频文件路径变量
+    private String mCurrentAudioFilePath = null; // 当前音频文件的路径
+    
 
     
     public SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
@@ -827,8 +830,12 @@ public class SubtitleWordSelectionController {
      * 选择下一个单词
      */
     private void selectNextWord() {
-        if (mCurrentWordIndex < mWords.length - 1) {
-            mCurrentWordIndex++;
+        // 删除当前的音频文件
+        deleteCurrentAudioFile();
+        
+        if (mWords.length > 0) {
+            // 实现循环选择：当到达最后一个单词时，回到第一个单词
+            mCurrentWordIndex = (mCurrentWordIndex + 1) % mWords.length;
             Log.d(TAG, "选择下一个单词: " + mWords[mCurrentWordIndex] + " 索引: " + mCurrentWordIndex);
             highlightCurrentWord();
         }
@@ -838,8 +845,12 @@ public class SubtitleWordSelectionController {
      * 选择上一个单词
      */
     private void selectPreviousWord() {
-        if (mCurrentWordIndex > 0) {
-            mCurrentWordIndex--;
+        // 删除当前的音频文件
+        deleteCurrentAudioFile();
+        
+        if (mWords.length > 0) {
+            // 实现循环选择：当到达第一个单词时，跳到最后一个单词
+            mCurrentWordIndex = (mCurrentWordIndex - 1 + mWords.length) % mWords.length;
             Log.d(TAG, "选择上一个单词: " + mWords[mCurrentWordIndex] + " 索引: " + mCurrentWordIndex);
             highlightCurrentWord();
         }
@@ -2766,15 +2777,16 @@ public class SubtitleWordSelectionController {
         hideDefinitionOverlay();
         hideSelectionOverlay();
         
-
-        
-            // 停止所有可能的TTS播放
-    if (mMediaPlayer != null) {
-        if (mMediaPlayer.isPlaying()) {
-            mMediaPlayer.stop();
-            mMediaPlayer.reset();
+        // 删除当前的音频文件
+        deleteCurrentAudioFile();
+            
+        // 停止所有可能的TTS播放
+        if (mMediaPlayer != null) {
+            if (mMediaPlayer.isPlaying()) {
+                mMediaPlayer.stop();
+                mMediaPlayer.reset();
+            }
         }
-    }
         
         // 重置状态
         mIsWordSelectionMode = false;
@@ -3006,15 +3018,41 @@ public class SubtitleWordSelectionController {
                 mMediaPlayer.release();
             }
             
+            // 保存当前音频文件路径
+            mCurrentAudioFilePath = filePath;
+            
             // 创建并设置新的MediaPlayer
             mMediaPlayer = new MediaPlayer();
             mMediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
             mMediaPlayer.setDataSource(filePath);
             mMediaPlayer.setOnPreparedListener(mp -> mp.start());
-            mMediaPlayer.setOnCompletionListener(mp -> new File(filePath).delete());
+            // 不再在播放完成后立即删除文件
+            //mMediaPlayer.setOnCompletionListener(mp -> new File(filePath).delete());
             mMediaPlayer.prepareAsync();
         } catch (Exception e) {
             Log.e(TAG, "播放音频失败：" + e.getMessage());
+        }
+    }
+    
+    /**
+     * 删除当前音频文件
+     */
+    private void deleteCurrentAudioFile() {
+        if (mCurrentAudioFilePath != null) {
+            try {
+                File audioFile = new File(mCurrentAudioFilePath);
+                if (audioFile.exists()) {
+                    boolean deleted = audioFile.delete();
+                    if (deleted) {
+                        Log.d(TAG, "成功删除音频文件: " + mCurrentAudioFilePath);
+                    } else {
+                        Log.e(TAG, "无法删除音频文件: " + mCurrentAudioFilePath);
+                    }
+                }
+                mCurrentAudioFilePath = null;
+            } catch (Exception e) {
+                Log.e(TAG, "删除音频文件时出错: " + e.getMessage());
+            }
         }
     }
     
@@ -3025,6 +3063,9 @@ public class SubtitleWordSelectionController {
     public void release() {
         // 确保退出选词模式
         exitWordSelectionMode();
+        
+        // 删除当前的音频文件
+        deleteCurrentAudioFile();
         
         // 释放MediaPlayer资源
         if (mMediaPlayer != null) {
