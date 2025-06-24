@@ -109,6 +109,8 @@ public class SubtitleWordSelectionController {
     private static final String TTS_SPEED = "1";
     private MediaPlayer mMediaPlayer;
     private boolean mTtsEnabled = true; // 是否启用TTS功能
+    private AudioManager mAudioManager; // 音频管理器
+    private int mOriginalVolume = -1; // 保存原始音量
     
     // 在类的成员变量区域添加当前音频文件路径变量
     private String mCurrentAudioFilePath = null; // 当前音频文件的路径
@@ -126,6 +128,9 @@ public class SubtitleWordSelectionController {
         
         // 初始化单词数据库
         mVocabularyDatabase = VocabularyDatabase.getInstance(context);
+        
+        // 初始化音频管理器
+        mAudioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         
         // 创建选词覆盖层
         createSelectionOverlay();
@@ -1937,6 +1942,13 @@ public class SubtitleWordSelectionController {
                 if (mMediaPlayer.isPlaying()) {
                     mMediaPlayer.stop();
                     mMediaPlayer.reset();
+                    
+                    // 恢复原始音量
+                    if (mAudioManager != null && mOriginalVolume != -1) {
+                        Log.d(TAG, "隐藏解释覆盖层时恢复原始音量: " + mOriginalVolume);
+                        mAudioManager.setStreamVolume(AudioManager.STREAM_MUSIC, mOriginalVolume, 0);
+                        mOriginalVolume = -1;
+                    }
                 }
             }
             
@@ -3038,18 +3050,47 @@ public class SubtitleWordSelectionController {
             // 保存当前音频文件路径
             mCurrentAudioFilePath = filePath;
             
+            // 保存当前系统音量
+            if (mAudioManager != null && mOriginalVolume == -1) {
+                mOriginalVolume = mAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+                Log.d(TAG, "保存原始音量: " + mOriginalVolume);
+                
+                // 获取最大音量
+                int maxVolume = mAudioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+                // 将音量设为最大音量的80%
+                int newVolume = (int)(maxVolume * 0.8f);
+                Log.d(TAG, "设置新音量: " + newVolume + " (最大: " + maxVolume + ")");
+                
+                // 临时提高系统音量
+                mAudioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0);
+            }
+            
             // 创建并设置新的MediaPlayer
             mMediaPlayer = new MediaPlayer();
             mMediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
             mMediaPlayer.setDataSource(filePath);
-            // 设置音量为最大值 (1.0为最大音量)
+            // 保持MediaPlayer音量为最大
             mMediaPlayer.setVolume(1.0f, 1.0f);
+            
+            // 设置准备完成和播放完成监听器
             mMediaPlayer.setOnPreparedListener(mp -> mp.start());
-            // 不再在播放完成后立即删除文件
-            //mMediaPlayer.setOnCompletionListener(mp -> new File(filePath).delete());
+            mMediaPlayer.setOnCompletionListener(mp -> {
+                // 播放完成后恢复原始音量
+                if (mAudioManager != null && mOriginalVolume != -1) {
+                    Log.d(TAG, "恢复原始音量: " + mOriginalVolume);
+                    mAudioManager.setStreamVolume(AudioManager.STREAM_MUSIC, mOriginalVolume, 0);
+                    mOriginalVolume = -1;
+                }
+            });
+            
             mMediaPlayer.prepareAsync();
         } catch (Exception e) {
             Log.e(TAG, "播放音频失败：" + e.getMessage());
+            // 发生错误时也要恢复音量
+            if (mAudioManager != null && mOriginalVolume != -1) {
+                mAudioManager.setStreamVolume(AudioManager.STREAM_MUSIC, mOriginalVolume, 0);
+                mOriginalVolume = -1;
+            }
         }
     }
     
@@ -3087,6 +3128,13 @@ public class SubtitleWordSelectionController {
         
         // 删除当前的音频文件
         deleteCurrentAudioFile();
+        
+        // 恢复原始音量
+        if (mAudioManager != null && mOriginalVolume != -1) {
+            Log.d(TAG, "释放资源时恢复原始音量: " + mOriginalVolume);
+            mAudioManager.setStreamVolume(AudioManager.STREAM_MUSIC, mOriginalVolume, 0);
+            mOriginalVolume = -1;
+        }
         
         // 释放MediaPlayer资源
         if (mMediaPlayer != null) {
