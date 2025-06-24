@@ -113,6 +113,9 @@ public class SubtitleWordSelectionController {
     // 在类的成员变量区域添加当前音频文件路径变量
     private String mCurrentAudioFilePath = null; // 当前音频文件的路径
     
+    // 在类的成员变量区域添加上次朗读单词变量
+    private String mLastSpokenWord = null; // 上次朗读的单词
+    
 
     
     public SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
@@ -2954,6 +2957,20 @@ public class SubtitleWordSelectionController {
             return;
         }
         
+        // 检查是否与上次朗读的单词相同，且音频文件还存在
+        if (word.equals(mLastSpokenWord) && mCurrentAudioFilePath != null) {
+            File audioFile = new File(mCurrentAudioFilePath);
+            if (audioFile.exists()) {
+                Log.d(TAG, "复用已有的音频文件: " + mCurrentAudioFilePath);
+                // 直接播放已有的音频文件，无需重新请求TTS服务
+                playAudio(mCurrentAudioFilePath);
+                return;
+            }
+        }
+        
+        // 记录当前要朗读的单词
+        mLastSpokenWord = word;
+        
         // 在后台线程中执行网络请求
         new Thread(() -> {
             HttpURLConnection connection = null;
@@ -3050,6 +3067,8 @@ public class SubtitleWordSelectionController {
                     }
                 }
                 mCurrentAudioFilePath = null;
+                // 清除上次朗读的单词记录
+                mLastSpokenWord = null;
             } catch (Exception e) {
                 Log.e(TAG, "删除音频文件时出错: " + e.getMessage());
             }
