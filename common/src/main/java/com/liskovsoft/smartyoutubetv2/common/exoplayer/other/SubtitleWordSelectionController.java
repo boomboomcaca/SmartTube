@@ -8,6 +8,8 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.FrameLayout;
 import androidx.core.content.ContextCompat;
+import android.view.animation.AlphaAnimation;
+import android.view.animation.Animation;
 
 import com.google.android.exoplayer2.text.Cue;
 import com.google.android.exoplayer2.ui.SubtitleView;
@@ -47,7 +49,7 @@ import android.media.MediaPlayer;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
-import android.speech.tts.TextToSpeech;
+
 
 /**
  * 控制器类，用于管理字幕选词功能
@@ -108,12 +110,7 @@ public class SubtitleWordSelectionController {
     private MediaPlayer mMediaPlayer;
     private boolean mTtsEnabled = true; // 是否启用TTS功能
     
-    // 添加Android内置TTS引擎相关变量
-    private android.speech.tts.TextToSpeech mAndroidTts;
-    private boolean mIsAndroidTtsInitialized = false;
-    private boolean mUseAndroidTts = false; // 是否使用Android内置TTS
-    private int mKokoroTtsFailCount = 0;
-    private static final int MAX_TTS_FAIL_COUNT = 3; // 允许的最大失败次数，超过则切换到Android TTS
+
     
     public SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
         mContext = context;
@@ -127,32 +124,8 @@ public class SubtitleWordSelectionController {
         // 创建选词覆盖层
         createSelectionOverlay();
         
-        // 初始化Android TTS引擎
-        initAndroidTts();
-        
         // 延迟初始化，确保所有组件都已准备好
         mHandler.postDelayed(this::initializeController, 1000);
-    }
-    
-    /**
-     * 初始化Android内置TTS引擎
-     */
-    private void initAndroidTts() {
-        try {
-            mAndroidTts = new android.speech.tts.TextToSpeech(mContext, status -> {
-                if (status == android.speech.tts.TextToSpeech.SUCCESS) {
-                    mIsAndroidTtsInitialized = true;
-                    mAndroidTts.setLanguage(java.util.Locale.US); // 设置美式英语
-                    Log.d(TAG, "Android TTS引擎初始化成功");
-                } else {
-                    Log.e(TAG, "无法初始化Android TTS引擎，状态: " + status);
-                    mIsAndroidTtsInitialized = false;
-                }
-            });
-        } catch (Exception e) {
-            Log.e(TAG, "初始化Android TTS引擎时出错: " + e.getMessage(), e);
-            mIsAndroidTtsInitialized = false;
-        }
     }
     
     /**
@@ -403,6 +376,15 @@ public class SubtitleWordSelectionController {
                 }
                 return false;
                 
+            case KeyEvent.KEYCODE_MENU:
+                // 处理菜单键按下事件，在选词模式下无论解释窗口是否打开都朗读当前单词
+                String currentWord = getActualHighlightedWord();
+                if (currentWord != null && !currentWord.isEmpty()) {
+                    Log.d(TAG, "菜单键按下，朗读单词: " + currentWord);
+                    speakWord(currentWord);
+                }
+                return true;
+                
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
                 // 检测是否是双击 - 当前时间与上次点击时间的差小于阈值
@@ -452,37 +434,35 @@ public class SubtitleWordSelectionController {
                             translateCurrentWord();
                         } else {
                             // 如果已经显示解释，切换单词学习状态
-                            String currentWord = "";
+                            String selectedWord = "";
                             if (mCurrentWordIndex >= 0 && mCurrentWordIndex < mWords.length) {
-                                currentWord = mWords[mCurrentWordIndex];
+                                selectedWord = mWords[mCurrentWordIndex];
                             } else {
                                 Log.e(TAG, "无法获取当前单词，索引无效: " + mCurrentWordIndex);
                                 return;
                             }
                             
                             // 切换单词学习状态
-                            boolean isLearningWord = mVocabularyDatabase.isWordInLearningList(currentWord);
+                            boolean isLearningWord = mVocabularyDatabase.isWordInLearningList(selectedWord);
                             boolean success = false;
                             
                             if (isLearningWord) {
                                 // 如果单词已在学习列表中，从列表中删除
-                                success = mVocabularyDatabase.removeWord(currentWord);
+                                success = mVocabularyDatabase.removeWord(selectedWord);
                                 if (success) {
-                                    // 更新解释窗口第一行
-                                    updateDefinitionFirstLine(currentWord, false);
-                                    Log.d(TAG, "单词已从学习列表中删除: " + currentWord);
+                                    // 记录日志
+                                    Log.d(TAG, "单词已从学习列表中删除: " + selectedWord);
                                 } else {
-                                    Log.e(TAG, "从学习列表中删除单词失败: " + currentWord);
+                                    Log.e(TAG, "从学习列表中删除单词失败: " + selectedWord);
                                 }
                             } else {
                                 // 如果单词不在学习列表中，添加到列表
-                                success = mVocabularyDatabase.addWord(currentWord);
+                                success = mVocabularyDatabase.addWord(selectedWord);
                                 if (success) {
-                                    // 更新解释窗口第一行
-                                    updateDefinitionFirstLine(currentWord, true);
-                                    Log.d(TAG, "单词已添加到学习列表: " + currentWord);
+                                    // 记录日志
+                                    Log.d(TAG, "单词已添加到学习列表: " + selectedWord);
                                 } else {
-                                    Log.e(TAG, "添加单词到学习列表失败: " + currentWord);
+                                    Log.e(TAG, "添加单词到学习列表失败: " + selectedWord);
                                 }
                             }
                             
@@ -1057,7 +1037,8 @@ public class SubtitleWordSelectionController {
         
         // 显示覆盖层和加载提示
         if (mRetryCount == 0) {
-            showDefinitionOverlay("正在查询中...\n请稍候");
+            // 第一次显示加载提示时不朗读单词
+            showDefinitionOverlay("正在查询中...\n请稍候", false);
         }
         
         // 创建一个新线程来执行网络请求，避免阻塞主线程
@@ -1098,8 +1079,8 @@ public class SubtitleWordSelectionController {
                             int delayMs = 500 + (mRetryCount * 100);
                             mHandler.postDelayed(this::translateCurrentWordWithRetry, delayMs);
                         } else {
-                            // 显示最终结果或达到最大重试次数的结果
-                            showDefinitionOverlay(finalDefinition);
+                            // 显示最终结果时不朗读单词
+                            showDefinitionOverlay(finalDefinition, false);
                             // 如果达到最大重试次数但仍未获得中文回答，记录日志
                             if (mRetryCount >= MAX_RETRY_COUNT && 
                                 (finalDefinition.contains("注意：AI没有使用中文回答") || 
@@ -1662,17 +1643,23 @@ public class SubtitleWordSelectionController {
     
     /**
      * 显示解释覆盖层
+     * @param text 要显示的文本
+     * @param shouldSpeak 是否朗读单词
      */
-    private void showDefinitionOverlay(String text) {
+    private void showDefinitionOverlay(String text, boolean shouldSpeak) {
         if (mSelectionOverlay != null && mRootView != null) {
             // 如果覆盖层还没有添加到根视图，先添加
             if (mSelectionOverlay.getParent() == null) {
                 mRootView.addView(mSelectionOverlay);
             }
             
-            // 获取当前单词并朗读
-            String currentWord = getActualHighlightedWord();
-            speakWord(currentWord);
+
+            
+            // 获取当前单词并根据需要朗读
+            if (shouldSpeak) {
+                String currentWord = getActualHighlightedWord();
+                speakWord(currentWord);
+            }
             
             // 设置文本内容
             if (mTextView != null) {
@@ -1928,9 +1915,41 @@ public class SubtitleWordSelectionController {
      * 隐藏解释覆盖层
      */
     private void hideDefinitionOverlay() {
-        if (mSelectionOverlay != null) {
-        mSelectionOverlay.setVisibility(View.GONE);
-            mIsShowingDefinition = false;
+        if (mSelectionOverlay != null && mSelectionOverlay.getVisibility() == View.VISIBLE) {
+
+            
+            // 停止所有正在进行的TTS
+            if (mMediaPlayer != null) {
+                if (mMediaPlayer.isPlaying()) {
+                    mMediaPlayer.stop();
+                    mMediaPlayer.reset();
+                }
+            }
+            
+            // 设置为渐隐动画
+            AlphaAnimation anim = new AlphaAnimation(1.0f, 0.0f);
+            anim.setDuration(300);
+            anim.setAnimationListener(new Animation.AnimationListener() {
+                @Override
+                public void onAnimationStart(Animation animation) {}
+                
+                @Override
+                public void onAnimationEnd(Animation animation) {
+                    mSelectionOverlay.setVisibility(View.GONE);
+                    // 尝试从父视图中移除覆盖层
+                    if (mSelectionOverlay.getParent() != null) {
+                        ((ViewGroup) mSelectionOverlay.getParent()).removeView(mSelectionOverlay);
+                    }
+                    
+                    // 重置状态
+                    mIsShowingDefinition = false;
+                }
+                
+                @Override
+                public void onAnimationRepeat(Animation animation) {}
+            });
+            
+            mSelectionOverlay.startAnimation(anim);
         }
     }
     
@@ -2747,6 +2766,16 @@ public class SubtitleWordSelectionController {
         hideDefinitionOverlay();
         hideSelectionOverlay();
         
+
+        
+            // 停止所有可能的TTS播放
+    if (mMediaPlayer != null) {
+        if (mMediaPlayer.isPlaying()) {
+            mMediaPlayer.stop();
+            mMediaPlayer.reset();
+        }
+    }
+        
         // 重置状态
         mIsWordSelectionMode = false;
         mIsShowingDefinition = false;
@@ -2903,35 +2932,7 @@ public class SubtitleWordSelectionController {
         return fetchOllamaDefinition(word, context, wordPosition, 0);
     }
     
-    /**
-     * 更新解释窗口的第一行，显示学习状态
-     * @param word 当前单词
-     * @param isLearning 是否在学习列表中
-     */
-    private void updateDefinitionFirstLine(String word, boolean isLearning) {
-        if (mTextView == null) {
-            Log.e(TAG, "无法更新解释窗口，mTextView为空");
-            return;
-        }
-    }
-    
-    /**
-     * 使用Android内置TTS朗读单词
-     * @param word 要朗读的单词
-     */
-    private void speakWordWithAndroidTts(String word) {
-        if (mIsAndroidTtsInitialized && mAndroidTts != null) {
-            try {
-                mAndroidTts.speak(word, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "word_tts_" + System.currentTimeMillis());
-                Log.d(TAG, "正在使用Android TTS朗读: " + word);
-            } catch (Exception e) {
-                Log.e(TAG, "Android TTS朗读失败: " + e.getMessage(), e);
-            }
-        } else {
-            Log.e(TAG, "Android TTS未初始化，无法朗读");
-        }
-    }
-    
+
     /**
      * 使用Kokoro TTS API朗读单词
      * @param word 要朗读的单词
@@ -2941,21 +2942,12 @@ public class SubtitleWordSelectionController {
             return;
         }
         
-        // 如果已经切换到Android TTS模式，或者达到了失败次数上限
-        if (mUseAndroidTts || mKokoroTtsFailCount >= MAX_TTS_FAIL_COUNT) {
-            speakWordWithAndroidTts(word);
-            return;
-        }
-        
         // 在后台线程中执行网络请求
         new Thread(() -> {
             HttpURLConnection connection = null;
             try {
-                // 准备请求URL
+                // 准备请求并发送
                 URL url = new URL(KOKORO_TTS_API_URL);
-                Log.d(TAG, "TTS准备请求URL: " + KOKORO_TTS_API_URL);
-                
-                // 打开连接
                 connection = (HttpURLConnection) url.openConnection();
                 connection.setRequestMethod("POST");
                 connection.setRequestProperty("Content-Type", "application/json");
@@ -2964,88 +2956,39 @@ public class SubtitleWordSelectionController {
                 
                 // 准备JSON请求体
                 JSONObject requestBody = new JSONObject();
-                requestBody.put("input", word);  // 将"text"改为"input"
+                requestBody.put("input", word);
                 requestBody.put("language", TTS_LANGUAGE);
                 requestBody.put("voice", TTS_VOICE);
                 requestBody.put("speed", TTS_SPEED);
                 
-                // 记录请求内容
-                String requestBodyStr = requestBody.toString();
-                Log.d(TAG, "TTS请求内容: " + requestBodyStr);
-                
                 // 发送请求
                 try (OutputStream os = connection.getOutputStream()) {
-                    byte[] input = requestBodyStr.getBytes("UTF-8");
-                    os.write(input, 0, input.length);
+                    os.write(requestBody.toString().getBytes("UTF-8"));
                 }
                 
-                // 检查响应代码
+                // 处理响应
                 int responseCode = connection.getResponseCode();
-                Log.d(TAG, "TTS响应码: " + responseCode);
-                
                 if (responseCode == HttpURLConnection.HTTP_OK) {
-                    // 读取音频数据
-                    try (InputStream inputStream = connection.getInputStream()) {
-                        // 将音频数据保存到临时文件
-                        File tempFile = File.createTempFile("tts_", ".wav", mContext.getCacheDir());
-                        try (FileOutputStream fileOutputStream = new FileOutputStream(tempFile)) {
-                            byte[] buffer = new byte[4096];
-                            int bytesRead;
-                            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                                fileOutputStream.write(buffer, 0, bytesRead);
-                            }
+                    // 读取音频数据到临时文件
+                    File tempFile = File.createTempFile("tts_", ".wav", mContext.getCacheDir());
+                    try (InputStream inputStream = connection.getInputStream();
+                         FileOutputStream fileOutputStream = new FileOutputStream(tempFile)) {
+                        byte[] buffer = new byte[4096];
+                        int bytesRead;
+                        while ((bytesRead = inputStream.read(buffer)) != -1) {
+                            fileOutputStream.write(buffer, 0, bytesRead);
                         }
-                        
                         // 播放音频
                         playAudio(tempFile.getAbsolutePath());
-                        
-                        // 重置失败计数器
-                        mKokoroTtsFailCount = 0;
-                        
-                        Log.d(TAG, "TTS音频生成成功：" + word);
                     }
                 } else {
-                    // 增加失败计数
-                    mKokoroTtsFailCount++;
-                    
-                    // 尝试读取错误响应
-                    String errorMessage;
-                    try (BufferedReader reader = new BufferedReader(
-                            new InputStreamReader(connection.getErrorStream()))) {
-                        StringBuilder response = new StringBuilder();
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            response.append(line);
-                        }
-                        errorMessage = response.toString();
-                        Log.e(TAG, "TTS请求失败，响应码：" + responseCode + ", 错误信息: " + errorMessage);
-                    } catch (Exception e) {
-                        Log.e(TAG, "TTS请求失败，响应码：" + responseCode + ", 无法读取错误详情", e);
-                    }
-                    
-                    // 如果达到失败次数上限，切换到Android TTS
-                    if (mKokoroTtsFailCount >= MAX_TTS_FAIL_COUNT) {
-                        Log.d(TAG, "TTS API连续失败次数达到" + MAX_TTS_FAIL_COUNT + "，切换到Android TTS");
-                        mUseAndroidTts = true;
-                        speakWordWithAndroidTts(word);
-                    }
+                    Log.e(TAG, "TTS请求失败，响应码：" + responseCode);
                 }
             } catch (Exception e) {
-                // 增加失败计数
-                mKokoroTtsFailCount++;
-                
-                Log.e(TAG, "TTS请求异常：" + e.getClass().getName() + ": " + e.getMessage(), e);
-                
-                // 如果达到失败次数上限，切换到Android TTS
-                if (mKokoroTtsFailCount >= MAX_TTS_FAIL_COUNT) {
-                    Log.d(TAG, "TTS API连续失败次数达到" + MAX_TTS_FAIL_COUNT + "，切换到Android TTS");
-                    mUseAndroidTts = true;
-                    speakWordWithAndroidTts(word);
-                }
+                Log.e(TAG, "TTS请求异常：" + e.getMessage());
             } finally {
                 if (connection != null) {
                     connection.disconnect();
-                    Log.d(TAG, "TTS连接已关闭");
                 }
             }
         }).start();
@@ -3059,24 +3002,19 @@ public class SubtitleWordSelectionController {
         try {
             // 释放之前的MediaPlayer资源
             if (mMediaPlayer != null) {
-                if (mMediaPlayer.isPlaying()) {
-                    mMediaPlayer.stop();
-                }
+                if (mMediaPlayer.isPlaying()) mMediaPlayer.stop();
                 mMediaPlayer.release();
             }
             
-            // 创建新的MediaPlayer
+            // 创建并设置新的MediaPlayer
             mMediaPlayer = new MediaPlayer();
             mMediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
             mMediaPlayer.setDataSource(filePath);
             mMediaPlayer.setOnPreparedListener(mp -> mp.start());
-            mMediaPlayer.setOnCompletionListener(mp -> {
-                // 播放完成后删除临时文件
-                new File(filePath).delete();
-            });
+            mMediaPlayer.setOnCompletionListener(mp -> new File(filePath).delete());
             mMediaPlayer.prepareAsync();
         } catch (Exception e) {
-            Log.e(TAG, "播放音频失败：" + e.getMessage(), e);
+            Log.e(TAG, "播放音频失败：" + e.getMessage());
         }
     }
     
@@ -3088,32 +3026,23 @@ public class SubtitleWordSelectionController {
         // 确保退出选词模式
         exitWordSelectionMode();
         
-        // 释放Android TTS引擎资源
-        if (mAndroidTts != null) {
-            try {
-                mAndroidTts.stop();
-                mAndroidTts.shutdown();
-                Log.d(TAG, "Android TTS引擎已释放");
-            } catch (Exception e) {
-                Log.e(TAG, "释放Android TTS引擎时出错: " + e.getMessage(), e);
-            } finally {
-                mAndroidTts = null;
-                mIsAndroidTtsInitialized = false;
-            }
-        }
-        
         // 释放MediaPlayer资源
         if (mMediaPlayer != null) {
             try {
-                if (mMediaPlayer.isPlaying()) {
-                    mMediaPlayer.stop();
-                }
+                if (mMediaPlayer.isPlaying()) mMediaPlayer.stop();
                 mMediaPlayer.release();
                 mMediaPlayer = null;
-                Log.d(TAG, "MediaPlayer已释放");
             } catch (Exception e) {
-                Log.e(TAG, "释放MediaPlayer时出错: " + e.getMessage(), e);
+                Log.e(TAG, "释放MediaPlayer时出错: " + e.getMessage());
             }
         }
+    }
+
+    /**
+     * 显示解释覆盖层（默认不朗读单词）
+     * @param text 要显示的文本
+     */
+    private void showDefinitionOverlay(String text) {
+        showDefinitionOverlay(text, false);
     }
 } 
