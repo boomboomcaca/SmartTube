@@ -3042,6 +3042,8 @@ public class SubtitleWordSelectionController {
             mMediaPlayer = new MediaPlayer();
             mMediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
             mMediaPlayer.setDataSource(filePath);
+            // 设置音量为最大值 (1.0为最大音量)
+            mMediaPlayer.setVolume(1.0f, 1.0f);
             mMediaPlayer.setOnPreparedListener(mp -> mp.start());
             // 不再在播放完成后立即删除文件
             //mMediaPlayer.setOnCompletionListener(mp -> new File(filePath).delete());
