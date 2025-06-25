@@ -3,8 +3,12 @@ package com.liskovsoft.smartyoutubetv2.common.app.presenters;
 import android.annotation.SuppressLint;
 import android.content.Context;
 
+import com.liskovsoft.mediaserviceinterfaces.ContentService;
+import com.liskovsoft.mediaserviceinterfaces.SignInService;
 import com.liskovsoft.mediaserviceinterfaces.data.Account;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
+import com.liskovsoft.mediaserviceinterfaces.data.MediaItem;
+import com.liskovsoft.mediaserviceinterfaces.data.PlaylistInfo;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.helpers.ScreenHelper;
 import com.liskovsoft.sharedutils.locale.LocaleUtility;
@@ -39,6 +43,9 @@ import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager.AccountCha
 import com.liskovsoft.smartyoutubetv2.common.prefs.AccountsData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
+import com.liskovsoft.youtubeapi.service.YouTubeSignInService;
+import io.reactivex.Observable;
+import io.reactivex.disposables.Disposable;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -47,9 +54,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
-
-import io.reactivex.Observable;
-import io.reactivex.disposables.Disposable;
 
 public class BrowsePresenter extends BasePresenter<BrowseView> implements SectionPresenter, VideoGroupPresenter, AccountChangeListener {
     private static final String TAG = BrowsePresenter.class.getSimpleName();
@@ -185,6 +189,7 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         mSectionsMapping.put(MediaGroup.TYPE_SPORTS, new BrowseSection(MediaGroup.TYPE_SPORTS, getContext().getString(R.string.header_sports), BrowseSection.TYPE_ROW, R.drawable.icon_sports));
         mSectionsMapping.put(MediaGroup.TYPE_LIVE, new BrowseSection(MediaGroup.TYPE_LIVE, getContext().getString(R.string.badge_live), BrowseSection.TYPE_ROW, R.drawable.icon_live));
         mSectionsMapping.put(MediaGroup.TYPE_MY_VIDEOS, new BrowseSection(MediaGroup.TYPE_MY_VIDEOS, getContext().getString(R.string.my_videos), BrowseSection.TYPE_GRID, R.drawable.icon_playlist));
+        mSectionsMapping.put(MediaGroup.TYPE_SMB_PLAYER, new BrowseSection(MediaGroup.TYPE_SMB_PLAYER, getContext().getString(R.string.header_smb_player), BrowseSection.TYPE_SMB_PLAYER, R.drawable.icon_history));
         mSectionsMapping.put(MediaGroup.TYPE_GAMING, new BrowseSection(MediaGroup.TYPE_GAMING, getContext().getString(R.string.header_gaming), BrowseSection.TYPE_ROW, R.drawable.icon_gaming));
         if (!Helpers.equalsAny(country, "RU", "BY")) {
             mSectionsMapping.put(MediaGroup.TYPE_NEWS, new BrowseSection(MediaGroup.TYPE_NEWS, getContext().getString(R.string.header_news), BrowseSection.TYPE_ROW, R.drawable.icon_news));
@@ -218,6 +223,9 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         mGridMapping.put(MediaGroup.TYPE_CHANNEL_UPLOADS, getContentService().getSubscribedChannelsByNewContentObserve());
         mGridMapping.put(MediaGroup.TYPE_NOTIFICATIONS, getNotificationsService().getNotificationItemsObserve());
         mGridMapping.put(MediaGroup.TYPE_MY_VIDEOS, getContentService().getMyVideosObserve());
+        
+        // SMB播放器部分将在updateSection方法中单独处理
+        // 不要在这里添加SMB播放器映射
     }
 
     private void initPinnedSections() {
@@ -600,27 +608,42 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     }
 
     private void updateSection(BrowseSection section) {
-        switch (section.getType()) {
-            case BrowseSection.TYPE_GRID:
-            case BrowseSection.TYPE_SHORTS_GRID:
-                Observable<MediaGroup> group = mGridMapping.get(section.getId());
-                updateVideoGrid(section, group, section.isAuthOnly());
-                break;
-            case BrowseSection.TYPE_ROW:
-                Observable<List<MediaGroup>> groups = mRowMapping.get(section.getId());
-                updateVideoRows(section, groups, section.isAuthOnly());
-                break;
-            case BrowseSection.TYPE_SETTINGS_GRID:
-                Callable<List<SettingsItem>> items = mSettingsGridMapping.get(section.getId());
-                updateSettingsGrid(section, items);
-                break;
-            case BrowseSection.TYPE_MULTI_GRID:
-                Observable<MediaGroup> group2 = mGridMapping.get(section.getId());
-                updateVideoGrid(section, group2, 0, section.isAuthOnly());
-                break;
-            case BrowseSection.TYPE_ERROR:
-                getView().showProgressBar(false);
-                break;
+        if (section == null) {
+            return;
+        }
+
+        disposeActions();
+
+        if (section.getId() == MediaGroup.TYPE_SETTINGS) {
+            updateSettingsGrid(section, mSettingsGridMapping.get(section.getId()));
+        } else if (section.getId() == MediaGroup.TYPE_SMB_PLAYER) {
+            // 特殊处理SMB播放器部分
+            VideoGroup videoGroup = SmbPlayerPresenter.instance(getContext()).getVideoGroup();
+            if (videoGroup != null) {
+                getView().updateSection(videoGroup);
+            }
+        } else if (mRowMapping.containsKey(section.getId())) {
+            updateVideoRows(section, mRowMapping.get(section.getId()), true);
+        } else if (mGridMapping.containsKey(section.getId())) {
+            updateVideoGrid(section, mGridMapping.get(section.getId()), true);
+        } else {
+            // 可能是一个固定的频道或播放列表
+            // 查找对应的固定项
+            Video item = null;
+            for (Video pinnedItem : getSidebarService().getPinnedItems()) {
+                if (getSidebarService().getSectionIndex(pinnedItem.sectionId) == section.getId()) {
+                    item = pinnedItem;
+                    break;
+                }
+            }
+
+            if (item != null) {
+                if (enableRows(item)) {
+                    updateVideoRows(section, createPinnedRowAction(item), false);
+                } else {
+                    updateVideoGrid(section, createPinnedGridAction(item), false);
+                }
+            }
         }
 
         updateRefreshTime();

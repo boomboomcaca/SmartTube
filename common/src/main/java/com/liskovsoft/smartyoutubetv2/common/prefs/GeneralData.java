@@ -69,6 +69,7 @@ public class GeneralData implements ProfileChangeListener {
     private boolean mIsHistoryEnabled;
     private int mHistoryState;
     private boolean mIsAltAppIconEnabled;
+    private boolean mIsSmbPlayerEnabled;
     private int mVersionCode;
     private boolean mIsSelectChannelSectionEnabled;
     private boolean mIsOldUpdateNotificationsEnabled;
@@ -760,6 +761,7 @@ public class GeneralData implements ProfileChangeListener {
         mIsAutoBackupEnabled = Helpers.parseBoolean(split, 66, false);
         mIsRemapPageDownToSpeedEnabled = Helpers.parseBoolean(split, 67, false);
         mSearchExitShortcut = Helpers.parseInt(split, 68, EXIT_SINGLE_BACK);
+        mIsSmbPlayerEnabled = Helpers.parseBoolean(split, 69, false);
     }
 
     private void persistState() {
@@ -782,12 +784,21 @@ public class GeneralData implements ProfileChangeListener {
                 mIsRemapDpadUpToVolumeEnabled, mIsRemapDpadLeftToVolumeEnabled, mIsRemapNextToFastForwardEnabled, mIsHideWatchedFromNotificationsEnabled,
                 mChangelog, mPlayerExitShortcut, null, mIsFullscreenModeEnabled, null,
                 mRememberPinnedPosition, mSelectedItems, mIsFirstUseTooltipEnabled, mIsDeviceSpecificBackupEnabled, mIsAutoBackupEnabled,
-                mIsRemapPageDownToSpeedEnabled, mSearchExitShortcut));
+                mIsRemapPageDownToSpeedEnabled, mSearchExitShortcut, mIsSmbPlayerEnabled));
     }
 
     @Override
     public void onProfileChanged() {
         Utils.removeCallbacks(mPersistStateInt);
         restoreState();
+    }
+
+    public void enableSmbPlayer(boolean enable) {
+        mIsSmbPlayerEnabled = enable;
+        persistState();
+    }
+
+    public boolean isSmbPlayerEnabled() {
+        return mIsSmbPlayerEnabled;
     }
 }

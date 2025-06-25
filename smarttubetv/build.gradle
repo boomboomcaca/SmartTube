@@ -240,4 +240,7 @@ dependencies {
     //implementation 'com.github.stfalcon-studio:Chatkit:' + chatkitVersion
 
     implementation 'net.gotev:speech:' + gotevSpeechVersion
+    
+    // SMB support
+    implementation 'eu.agno3.jcifs:jcifs-ng:2.1.9'
 }

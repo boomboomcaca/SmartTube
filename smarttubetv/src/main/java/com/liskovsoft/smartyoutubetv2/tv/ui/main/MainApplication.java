@@ -13,6 +13,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SearchView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SignInView;
+import com.liskovsoft.smartyoutubetv2.common.app.views.SmbPlayerView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SplashView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.app.views.WebBrowserView;
@@ -69,6 +70,7 @@ public class MainApplication extends MultiDexApplication { // fix: Didn't find c
         viewManager.register(ChannelView.class, ChannelActivity.class, BrowseActivity.class);
         viewManager.register(ChannelUploadsView.class, ChannelUploadsActivity.class, BrowseActivity.class);
         viewManager.register(WebBrowserView.class, WebBrowserActivity.class, BrowseActivity.class);
+        viewManager.register(SmbPlayerView.class, BrowseActivity.class, BrowseActivity.class);
     }
 
     private void setupGlobalExceptionHandler() {

@@ -80,6 +80,7 @@ public class GeneralSettingsPresenter extends BasePresenter<Void> {
         //appendAppBackupCategory(settingsPresenter);
         appendInternetCensorship(settingsPresenter);
         appendHistoryCategory(settingsPresenter);
+        appendSmbPlayerCategory(settingsPresenter);
         appendMiscCategory(settingsPresenter);
 
         settingsPresenter.showDialog(getContext().getString(R.string.settings_general), () -> {
@@ -492,6 +493,19 @@ public class GeneralSettingsPresenter extends BasePresenter<Void> {
         }
 
         settingsPresenter.appendRadioCategory(getContext().getString(R.string.header_history), options);
+    }
+
+    private void appendSmbPlayerCategory(AppDialogPresenter settingsPresenter) {
+        List<OptionItem> options = new ArrayList<>();
+
+        options.add(UiOptionItem.from(getContext().getString(R.string.enable_smb_player),
+                option -> {
+                    mGeneralData.enableSmbPlayer(option.isSelected());
+                    BrowsePresenter.instance(getContext()).enableSection(MediaGroup.TYPE_SMB_PLAYER, option.isSelected());
+                },
+                mGeneralData.isSmbPlayerEnabled()));
+
+        settingsPresenter.appendCheckedCategory(getContext().getString(R.string.header_smb_player), options);
     }
 
     private void appendMiscCategory(AppDialogPresenter settingsPresenter) {

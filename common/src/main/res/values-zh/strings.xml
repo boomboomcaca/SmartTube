@@ -10,6 +10,7 @@
   <string name="header_playlists">播放列表</string>
   <string name="header_settings">设置</string>
   <string name="header_channels">频道</string>
+  <string name="header_smb_player">SMB播放器</string>
   <string name="subscriptions_signin_title">查看您喜爱频道的最新视频</string>
   <string name="subscriptions_signin_subtitle">登录查看您的订阅</string>
   <string name="subscriptions_signin_button_text">登录</string>
@@ -187,9 +188,9 @@
   <string name="content_block_interaction">互动提醒(订阅)</string>
   <string name="content_block_self_promo">自我宣传</string>
   <string name="content_block_music_off_topic">视频非音乐部分</string>
-  <string name="confirm_segment_skip">跳过片段“%s”\?</string>
+  <string name="confirm_segment_skip">跳过片段"%s"?</string>
   <string name="cancel_segment_skip">取消片段跳过</string>
-  <string name="msg_skipping_segment">正在跳过片段 \"%s\...</string>
+  <string name="msg_skipping_segment">正在跳过片段 "%s"...</string>
   <string name="content_block_notification_type">通知类型</string>
   <string name="content_block_notify_none">无通知</string>
   <string name="content_block_notify_toast">提示通知</string>
@@ -199,7 +200,7 @@
   <string name="btn_confirm">确认</string>
   <string name="player_low_video_quality">低画质视频</string>
   <string name="remote_session_closed">远程会话已关闭</string>
-  <string name="msg_mode_switch_error">无法切换到 \"%s\" 显示模式</string>
+  <string name="msg_mode_switch_error">无法切换到 "%s" 显示模式</string>
   <string name="msg_player_error">播放器错误 %s。重新启动播放...</string>
   <string name="video_preset_disabled">无预设</string>
   <string name="video_preset_enabled">下一个视频格式将根据预设设置</string>
@@ -461,18 +462,18 @@
   <string name="signin_view_title">正在加载用户代码...</string>
   <string name="signin_view_description">请在%s页面输入此代码后登录。注意:仅限Firefox或Chrome浏览器。</string>
   <string name="signin_view_action_text">完成</string>
-  <string name="require_checked">需要“%s”</string>
+  <string name="require_checked">需要"%s"</string>
   <string name="msg_press_again_to_exit">再按一次退出</string>
   <string name="player_remaining_time">剩余 %s</string>
   <string name="player_ending_time">结束于 %s</string>
   <string name="badge_new_content">新内容</string>
   <string name="badge_live">直播</string>
-  <string name="add_device_view_description">要关联设备，请在手机YouTube应用的“设置/在电视上观看”中输入此代码</string>
+  <string name="add_device_view_description">要关联设备，请在手机YouTube应用的"设置/在电视上观看"中输入此代码</string>
   <string name="playback_controls_repeat_pause">循环播放到此暂停</string>
   <string name="playback_controls_repeat_list">循环播放列表</string>
   <string name="action_subscribe_off">未订阅</string>
   <string name="action_subscribe_on">订阅</string>
-  <string name="skip_24_rate">跳过24帧格式(修正电影模式\?)</string>
+  <string name="skip_24_rate">跳过24帧格式(修正电影模式?)</string>
   <string name="player_disable_suggestions">禁用建议</string>
   <string name="feedback">反馈</string>
   <string name="sources">来源</string>
@@ -651,4 +652,7 @@
   <string name="pinned_channel_rows">将置顶频道显示为一行</string>
   <string name="prefer_ipv4">优先使用IPv4 DNS</string>
   <string name="prefer_ipv4_desc">可能修复应用程序无法使用的情况。\n注意：可能导致应用程序卡顿和闪退（尤其是在 Android 8 设备或 Dune HD 设备上）</string>
+  <string name="subtitle_word_selection_exit">已退出字幕选词模式</string>
+  <string name="card_unlocalized_titles">原始视频标题(非本地化)</string>
+  <string name="enable_smb_player">启用SMB播放器</string>
 </resources>
