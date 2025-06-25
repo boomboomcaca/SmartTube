@@ -158,6 +158,12 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                     // 先添加所有文件夹
                     for (SmbFile file : files) {
                         if (file.isDirectory()) {
+                            // 跳过隐藏文件夹
+                            if (file.isHidden() || file.getName().startsWith(".")) {
+                                Log.d(TAG, "跳过隐藏文件夹: " + file.getName());
+                                continue;
+                            }
+                            
                             Video video = new Video();
                             video.title = file.getName().replace("/", "");
                             video.cardImageUrl = "drawable://" + R.drawable.ic_folder;
@@ -174,6 +180,12 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                         // 再添加所有视频文件
                         for (SmbFile file : files) {
                             if (!file.isDirectory()) {
+                                // 跳过隐藏文件
+                                if (file.isHidden() || file.getName().startsWith(".")) {
+                                    Log.d(TAG, "跳过隐藏文件: " + file.getName());
+                                    continue;
+                                }
+                                
                                 String name = file.getName().toLowerCase();
                                 if (name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".avi") || 
                                     name.endsWith(".mov") || name.endsWith(".wmv") || name.endsWith(".flv") ||
