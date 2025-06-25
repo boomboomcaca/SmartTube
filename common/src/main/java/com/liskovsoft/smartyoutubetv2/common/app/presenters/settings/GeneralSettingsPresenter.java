@@ -504,6 +504,45 @@ public class GeneralSettingsPresenter extends BasePresenter<Void> {
                     BrowsePresenter.instance(getContext()).enableSection(MediaGroup.TYPE_SMB_PLAYER, option.isSelected());
                 },
                 mGeneralData.isSmbPlayerEnabled()));
+        
+        options.add(UiOptionItem.from(getContext().getString(R.string.smb_server_url),
+                optionItem -> {
+                    SimpleEditDialog.show(
+                            getContext(),
+                            getContext().getString(R.string.smb_server_url),
+                            mGeneralData.getSmbServerUrl(),
+                            newValue -> {
+                                mGeneralData.setSmbServerUrl(newValue);
+                                return true;
+                            }
+                    );
+                }));
+        
+        options.add(UiOptionItem.from(getContext().getString(R.string.smb_username),
+                optionItem -> {
+                    SimpleEditDialog.show(
+                            getContext(),
+                            getContext().getString(R.string.smb_username),
+                            mGeneralData.getSmbUsername(),
+                            newValue -> {
+                                mGeneralData.setSmbUsername(newValue);
+                                return true;
+                            }
+                    );
+                }));
+        
+        options.add(UiOptionItem.from(getContext().getString(R.string.smb_password),
+                optionItem -> {
+                    SimpleEditDialog.show(
+                            getContext(),
+                            getContext().getString(R.string.smb_password),
+                            mGeneralData.getSmbPassword(),
+                            newValue -> {
+                                mGeneralData.setSmbPassword(newValue);
+                                return true;
+                            }
+                    );
+                }));
 
         settingsPresenter.appendCheckedCategory(getContext().getString(R.string.header_smb_player), options);
     }

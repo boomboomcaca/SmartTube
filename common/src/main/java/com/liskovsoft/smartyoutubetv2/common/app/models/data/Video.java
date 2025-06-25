@@ -87,6 +87,7 @@ public final class Video {
     public boolean isPending;
     public boolean finishOnEnded;
     public boolean incognito;
+    public boolean isFolder;
     public String likeCount;
     public String dislikeCount;
     public String subscriberCount;

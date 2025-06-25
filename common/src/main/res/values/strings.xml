@@ -711,4 +711,8 @@
     <string name="subtitle_word_selection_exit">已退出字幕选词模式</string>
     <string name="card_unlocalized_titles">Unlocalized video titles</string>
     <string name="enable_smb_player">Enable SMB Player</string>
+    <string name="smb_server_url">SMB Server URL</string>
+    <string name="smb_username">Username</string>
+    <string name="smb_password">Password</string>
+    <string name="not_set">not set</string>
 </resources>

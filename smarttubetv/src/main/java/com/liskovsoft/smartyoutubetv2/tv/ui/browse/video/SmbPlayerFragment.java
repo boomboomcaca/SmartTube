@@ -17,6 +17,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.SmbPlayerView;
 public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerView {
     private static final String TAG = SmbPlayerFragment.class.getSimpleName();
     private SmbPlayerPresenter mPresenter;
+    private VideoGroup mCurrentGroup;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -29,36 +30,41 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
     public void onViewCreated(View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
-        mPresenter.onViewInitialized();
+        setOnItemViewClickedListener(new ItemViewClickedListener());
     }
 
     @Override
-    public void onResume() {
-        super.onResume();
+    public void onActivityCreated(@Nullable Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
 
-        if (mPresenter != null) {
-            mPresenter.onViewResumed();
-            update(mPresenter.getVideoGroup());
-        }
+        mPresenter.setView(this);
     }
 
-    protected void updateUI(VideoGroup group) {
-        if (group != null) {
-            update(group);
+    @Override
+    public void update(VideoGroup videoGroup) {
+        if (videoGroup == null) {
+            return;
         }
+
+        mCurrentGroup = videoGroup;
+
+        super.update(videoGroup);
+    }
+    
+    @Override
+    public void updateFolder(VideoGroup videoGroup) {
+        update(videoGroup);
     }
 
     @Override
     public void showError(String message) {
-        if (getActivity() != null) {
-            Toast.makeText(getContext(), message, Toast.LENGTH_LONG).show();
-        }
+        Toast.makeText(getContext(), message, Toast.LENGTH_LONG).show();
     }
 
     private final class ItemViewClickedListener implements OnItemViewClickedListener {
         @Override
         public void onItemClicked(Presenter.ViewHolder itemViewHolder, Object item,
-                                 RowPresenter.ViewHolder rowViewHolder, Row row) {
+                                  RowPresenter.ViewHolder rowViewHolder, Row row) {
             if (item instanceof Video) {
                 mPresenter.onVideoItemClicked((Video) item);
             }

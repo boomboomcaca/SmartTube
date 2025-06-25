@@ -99,6 +99,9 @@ dependencies {
 
     implementation 'com.jakewharton:process-phoenix:' + phoenixVersion
 
+    // SMB support
+    implementation 'eu.agno3.jcifs:jcifs-ng:2.1.9'
+
     stbetaImplementation project(':leanbackassistant')
     ststableImplementation project(':leanbackassistant')
     storigImplementation project(':leanbackassistant')

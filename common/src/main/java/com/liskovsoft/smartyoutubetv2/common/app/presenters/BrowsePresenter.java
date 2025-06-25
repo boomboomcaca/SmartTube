@@ -618,10 +618,7 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
             updateSettingsGrid(section, mSettingsGridMapping.get(section.getId()));
         } else if (section.getId() == MediaGroup.TYPE_SMB_PLAYER) {
             // 特殊处理SMB播放器部分
-            VideoGroup videoGroup = SmbPlayerPresenter.instance(getContext()).getVideoGroup();
-            if (videoGroup != null) {
-                getView().updateSection(videoGroup);
-            }
+            SmbPlayerPresenter.instance(getContext()).openView();
         } else if (mRowMapping.containsKey(section.getId())) {
             updateVideoRows(section, mRowMapping.get(section.getId()), true);
         } else if (mGridMapping.containsKey(section.getId())) {

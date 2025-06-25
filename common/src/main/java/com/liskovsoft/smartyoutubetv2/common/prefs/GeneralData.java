@@ -801,4 +801,28 @@ public class GeneralData implements ProfileChangeListener {
     public boolean isSmbPlayerEnabled() {
         return mIsSmbPlayerEnabled;
     }
+
+    public void setSmbServerUrl(String serverUrl) {
+        mPrefs.setProfileData("smb_server_url", serverUrl);
+    }
+
+    public String getSmbServerUrl() {
+        return mPrefs.getProfileData("smb_server_url");
+    }
+    
+    public void setSmbUsername(String username) {
+        mPrefs.setProfileData("smb_username", username);
+    }
+    
+    public String getSmbUsername() {
+        return mPrefs.getProfileData("smb_username");
+    }
+    
+    public void setSmbPassword(String password) {
+        mPrefs.setProfileData("smb_password", password);
+    }
+    
+    public String getSmbPassword() {
+        return mPrefs.getProfileData("smb_password");
+    }
 }
