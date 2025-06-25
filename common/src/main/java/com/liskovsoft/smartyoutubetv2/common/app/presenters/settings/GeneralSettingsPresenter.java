@@ -31,6 +31,7 @@ import com.liskovsoft.smartyoutubetv2.common.proxy.WebProxyDialog;
 import com.liskovsoft.smartyoutubetv2.common.utils.AppDialogUtil;
 import com.liskovsoft.smartyoutubetv2.common.utils.SimpleEditDialog;
 import com.liskovsoft.youtubeapi.service.internal.MediaServiceData;
+import com.liskovsoft.smartyoutubetv2.common.smb.SmbDialog;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -495,54 +496,34 @@ public class GeneralSettingsPresenter extends BasePresenter<Void> {
         settingsPresenter.appendRadioCategory(getContext().getString(R.string.header_history), options);
     }
 
+    public void showSmbPlayerSettings() {
+        AppDialogPresenter settingsPresenter = AppDialogPresenter.instance(getContext());
+        
+        appendSmbPlayerCategory(settingsPresenter);
+        
+        settingsPresenter.showDialog(getContext().getString(R.string.header_smb_player));
+    }
+
     private void appendSmbPlayerCategory(AppDialogPresenter settingsPresenter) {
         List<OptionItem> options = new ArrayList<>();
 
-        options.add(UiOptionItem.from(getContext().getString(R.string.enable_smb_player),
+        SmbDialog smbDialog = new SmbDialog(getContext());
+        String serverUrl = mGeneralData.getSmbServerUrl();
+        
+        options.add(UiOptionItem.from(getContext().getString(R.string.enable_smb_player) + ": " + serverUrl,
                 option -> {
                     mGeneralData.enableSmbPlayer(option.isSelected());
                     BrowsePresenter.instance(getContext()).enableSection(MediaGroup.TYPE_SMB_PLAYER, option.isSelected());
+                    BrowsePresenter.instance(getContext()).updateSections();
+                    mGeneralData.persistStateNow();
+                    
+                    if (option.isSelected()) {
+                        // 先关闭设置对话框，再显示SMB配置对话框
+                        settingsPresenter.closeDialog();
+                        smbDialog.showSmbConfigDialog();
+                    }
                 },
                 mGeneralData.isSmbPlayerEnabled()));
-        
-        options.add(UiOptionItem.from(getContext().getString(R.string.smb_server_url),
-                optionItem -> {
-                    SimpleEditDialog.show(
-                            getContext(),
-                            getContext().getString(R.string.smb_server_url),
-                            mGeneralData.getSmbServerUrl(),
-                            newValue -> {
-                                mGeneralData.setSmbServerUrl(newValue);
-                                return true;
-                            }
-                    );
-                }));
-        
-        options.add(UiOptionItem.from(getContext().getString(R.string.smb_username),
-                optionItem -> {
-                    SimpleEditDialog.show(
-                            getContext(),
-                            getContext().getString(R.string.smb_username),
-                            mGeneralData.getSmbUsername(),
-                            newValue -> {
-                                mGeneralData.setSmbUsername(newValue);
-                                return true;
-                            }
-                    );
-                }));
-        
-        options.add(UiOptionItem.from(getContext().getString(R.string.smb_password),
-                optionItem -> {
-                    SimpleEditDialog.show(
-                            getContext(),
-                            getContext().getString(R.string.smb_password),
-                            mGeneralData.getSmbPassword(),
-                            newValue -> {
-                                mGeneralData.setSmbPassword(newValue);
-                                return true;
-                            }
-                    );
-                }));
 
         settingsPresenter.appendCheckedCategory(getContext().getString(R.string.header_smb_player), options);
     }

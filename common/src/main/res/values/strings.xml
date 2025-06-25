@@ -715,4 +715,12 @@
     <string name="smb_username">Username</string>
     <string name="smb_password">Password</string>
     <string name="not_set">not set</string>
+    <!-- SMB Dialog -->
+    <string name="smb_settings_title">SMB设置</string>
+    <string name="smb_server_url_hint">服务器地址 (例如: smb://192.168.1.1/share)</string>
+    <string name="smb_username_hint">用户名</string>
+    <string name="smb_password_hint">密码</string>
+    <string name="smb_server_url_invalid">服务器地址无效</string>
+    <string name="smb_credentials_invalid">用户名和密码必须同时设置或同时为空</string>
+    <string name="smb_application_aborted">SMB设置应用失败</string>
 </resources>

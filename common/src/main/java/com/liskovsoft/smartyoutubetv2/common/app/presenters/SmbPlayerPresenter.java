@@ -136,33 +136,40 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                     videos.add(backVideo);
                 }
 
-                // 先添加所有文件夹
-                for (SmbFile file : files) {
-                    if (file.isDirectory()) {
-                        Video video = new Video();
-                        video.title = file.getName().replace("/", "");
-                        video.cardImageUrl = "drawable://" + R.drawable.ic_folder;
-                        video.videoUrl = file.getURL().toString();
-                        video.isFolder = true;
-                        videos.add(video);
-                    }
-                }
-
-                // 再添加所有视频文件
-                for (SmbFile file : files) {
-                    if (!file.isDirectory()) {
-                        String name = file.getName().toLowerCase();
-                        if (name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".avi") || 
-                            name.endsWith(".mov") || name.endsWith(".wmv") || name.endsWith(".flv") ||
-                            name.endsWith(".webm") || name.endsWith(".m4v") || name.endsWith(".ts")) {
+                try {
+                    // 先添加所有文件夹
+                    for (SmbFile file : files) {
+                        if (file.isDirectory()) {
                             Video video = new Video();
-                            video.title = file.getName();
-                            video.cardImageUrl = "drawable://" + R.drawable.ic_file_video;
+                            video.title = file.getName().replace("/", "");
+                            video.cardImageUrl = "drawable://" + R.drawable.ic_folder;
                             video.videoUrl = file.getURL().toString();
-                            video.isFolder = false;
+                            video.isFolder = true;
                             videos.add(video);
                         }
                     }
+
+                    // 只有在非根目录时才显示视频文件
+                    if (!path.equals(mRootPath)) {
+                        // 再添加所有视频文件
+                        for (SmbFile file : files) {
+                            if (!file.isDirectory()) {
+                                String name = file.getName().toLowerCase();
+                                if (name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".avi") || 
+                                    name.endsWith(".mov") || name.endsWith(".wmv") || name.endsWith(".flv") ||
+                                    name.endsWith(".webm") || name.endsWith(".m4v") || name.endsWith(".ts")) {
+                                    Video video = new Video();
+                                    video.title = file.getName();
+                                    video.cardImageUrl = "drawable://" + R.drawable.ic_file_video;
+                                    video.videoUrl = file.getURL().toString();
+                                    video.isFolder = false;
+                                    videos.add(video);
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error processing files: " + e.getMessage());
                 }
 
                 videoGroup.setTitle(path);
@@ -176,9 +183,6 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
             } catch (SmbException e) {
                 Log.e(TAG, "SMB error: " + e.getMessage());
                 mErrorMessage = "SMB error: " + e.getMessage();
-            } catch (IOException e) {
-                Log.e(TAG, "IO error: " + e.getMessage());
-                mErrorMessage = "IO error: " + e.getMessage();
             } catch (Exception e) {
                 Log.e(TAG, "Error: " + e.getMessage());
                 mErrorMessage = "Error: " + e.getMessage();

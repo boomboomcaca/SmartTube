@@ -768,6 +768,14 @@ public class GeneralData implements ProfileChangeListener {
         Utils.postDelayed(mPersistStateInt, 10_000);
     }
 
+    /**
+     * 立即保存状态，不延迟
+     */
+    public void persistStateNow() {
+        Utils.removeCallbacks(mPersistStateInt);
+        persistStateInt();
+    }
+
     private void persistStateInt() {
         // Zero index is skipped. Selected sections were there.
         mPrefs.setProfileData(GENERAL_DATA, Helpers.mergeData(null, null, null, mAppExitShortcut, mIsReturnToLauncherEnabled,
@@ -804,25 +812,39 @@ public class GeneralData implements ProfileChangeListener {
 
     public void setSmbServerUrl(String serverUrl) {
         mPrefs.setProfileData("smb_server_url", serverUrl);
+        persistStateNow();
     }
 
     public String getSmbServerUrl() {
-        return mPrefs.getProfileData("smb_server_url");
+        String url = mPrefs.getProfileData("smb_server_url");
+        return url != null && !url.isEmpty() ? url : "192.168.1.111";
     }
     
     public void setSmbUsername(String username) {
         mPrefs.setProfileData("smb_username", username);
+        persistStateNow();
     }
     
     public String getSmbUsername() {
-        return mPrefs.getProfileData("smb_username");
+        String username = mPrefs.getProfileData("smb_username");
+        return username != null && !username.isEmpty() ? username : "boom";
     }
     
     public void setSmbPassword(String password) {
         mPrefs.setProfileData("smb_password", password);
+        persistStateNow();
     }
     
     public String getSmbPassword() {
-        return mPrefs.getProfileData("smb_password");
+        String password = mPrefs.getProfileData("smb_password");
+        return password != null && !password.isEmpty() ? password : "1q12qw";
+    }
+    
+    public boolean isSmbServerConfigured() {
+        return true; // 始终返回true，因为我们有默认值
+    }
+    
+    public void enableSmbServerConfig(boolean enable) {
+        // 不清除已填写的内容，只是启用或禁用
     }
 }
