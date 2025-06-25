@@ -7,4 +7,5 @@ public interface SmbPlayerView {
     void update(VideoGroup videoGroup);
     void updateFolder(VideoGroup videoGroup);
     void showError(String message);
+    void showLoading(boolean show);
 } 

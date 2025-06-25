@@ -81,22 +81,31 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
         mRootPath = serverUrl;
         mCurrentPath = serverUrl;
 
+        // 显示加载中提示
+        if (getView() != null) {
+            getView().showLoading(true);
+        }
+
+        // 加载根文件夹
         loadFolder(mCurrentPath);
     }
 
     public void loadFolder(String path) {
         mCurrentPath = path;
+        Log.d(TAG, "Loading folder: " + path);
         new LoadFolderTask().execute(path);
     }
 
     public void navigateBack() {
         if (mCurrentPath.equals(mRootPath)) {
             // 已经在根目录，无法返回
+            Log.d(TAG, "Already at root directory, cannot navigate back");
             return;
         }
 
         // 移除最后一个目录
         String path = mCurrentPath.substring(0, mCurrentPath.lastIndexOf('/', mCurrentPath.length() - 2) + 1);
+        Log.d(TAG, "Navigating back to: " + path);
         loadFolder(path);
     }
 
@@ -106,8 +115,10 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
         @Override
         protected VideoGroup doInBackground(String... paths) {
             String path = paths[0];
+            Log.d(TAG, "Starting to load folder: " + path);
             List<Video> videos = new ArrayList<>();
             VideoGroup videoGroup = new VideoGroup();
+            videoGroup.setTitle(path);
 
             try {
                 CIFSContext baseContext = SingletonContext.getInstance();
@@ -117,14 +128,17 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                 String password = mGeneralData.getSmbPassword();
 
                 if (!TextUtils.isEmpty(username)) {
+                    Log.d(TAG, "Using authentication with username: " + username);
                     NtlmPasswordAuthenticator auth = new NtlmPasswordAuthenticator(username, password);
                     authenticatedContext = baseContext.withCredentials(auth);
                 } else {
+                    Log.d(TAG, "Using anonymous authentication");
                     authenticatedContext = baseContext;
                 }
 
                 SmbFile smbFile = new SmbFile(path, authenticatedContext);
                 SmbFile[] files = smbFile.listFiles();
+                Log.d(TAG, "Found " + (files != null ? files.length : 0) + " files in directory");
 
                 // 添加返回上一级目录选项（如果不是根目录）
                 if (!path.equals(mRootPath)) {
@@ -134,9 +148,13 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                     backVideo.videoUrl = "back";
                     backVideo.isFolder = true;
                     videos.add(backVideo);
+                    Log.d(TAG, "Added back navigation item");
                 }
 
                 try {
+                    int folderCount = 0;
+                    int videoCount = 0;
+                    
                     // 先添加所有文件夹
                     for (SmbFile file : files) {
                         if (file.isDirectory()) {
@@ -146,8 +164,10 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                             video.videoUrl = file.getURL().toString();
                             video.isFolder = true;
                             videos.add(video);
+                            folderCount++;
                         }
                     }
+                    Log.d(TAG, "Added " + folderCount + " folders");
 
                     // 只有在非根目录时才显示视频文件
                     if (!path.equals(mRootPath)) {
@@ -164,18 +184,29 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                                     video.videoUrl = file.getURL().toString();
                                     video.isFolder = false;
                                     videos.add(video);
+                                    videoCount++;
                                 }
                             }
                         }
                     }
+                    Log.d(TAG, "Added " + videoCount + " video files");
                 } catch (Exception e) {
                     Log.e(TAG, "Error processing files: " + e.getMessage());
                 }
 
-                videoGroup.setTitle(path);
-                for (Video video : videos) {
-                    videoGroup.add(video);
+                // 确保视频组有内容
+                if (!videos.isEmpty()) {
+                    // 使用from工厂方法正确初始化VideoGroup
+                    videoGroup = VideoGroup.from(videos);
+                    videoGroup.setTitle(path);
+                    videoGroup.setAction(VideoGroup.ACTION_REPLACE); // 确保替换当前内容
+                    Log.d(TAG, "Created VideoGroup with " + videos.size() + " items");
+                } else {
+                    // 即使没有视频，仍然显示空组
+                    videoGroup.setAction(VideoGroup.ACTION_REPLACE); 
+                    Log.d(TAG, "Created empty VideoGroup");
                 }
+                
                 return videoGroup;
             } catch (MalformedURLException e) {
                 Log.e(TAG, "Invalid URL: " + e.getMessage());
@@ -193,13 +224,20 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
 
         @Override
         protected void onPostExecute(VideoGroup videoGroup) {
-            if (videoGroup != null) {
-                mCurrentGroup = videoGroup;
-                if (getView() != null) {
+            if (getView() != null) {
+                getView().showLoading(false);
+                
+                if (videoGroup != null) {
+                    mCurrentGroup = videoGroup;
+                    Log.d(TAG, "Updating view with VideoGroup containing " + 
+                          (videoGroup.getVideos() != null ? videoGroup.getVideos().size() : 0) + " items");
                     getView().updateFolder(videoGroup);
+                } else {
+                    Log.e(TAG, "VideoGroup is null. Error: " + (mErrorMessage != null ? mErrorMessage : "Unknown error"));
+                    getView().showError(mErrorMessage != null ? mErrorMessage : "Unknown error");
                 }
-            } else if (getView() != null) {
-                getView().showError(mErrorMessage != null ? mErrorMessage : "Unknown error");
+            } else {
+                Log.e(TAG, "View is null, cannot update UI");
             }
         }
     }
