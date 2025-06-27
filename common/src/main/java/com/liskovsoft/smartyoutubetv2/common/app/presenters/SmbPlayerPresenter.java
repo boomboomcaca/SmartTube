@@ -2,12 +2,13 @@ package com.liskovsoft.smartyoutubetv2.common.app.presenters;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.Intent;
 import android.os.AsyncTask;
 import android.text.TextUtils;
-import android.util.Log;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
 import com.liskovsoft.sharedutils.helpers.FileHelpers;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
+import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.smartyoutubetv2.common.R;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
@@ -262,8 +263,19 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                 loadFolder(item.videoUrl);
             }
         } else {
-            // 播放视频
-            PlaybackPresenter.instance(getContext()).openVideo(item);
+            // 播放视频 - 使用独立播放器
+            try {
+                Intent intent = new Intent();
+                intent.setClassName(getContext(), "com.liskovsoft.smartyoutubetv2.tv.ui.playback.StandaloneSmbPlayerActivity");
+                intent.putExtra("video_url", item.videoUrl);
+                intent.putExtra("video_title", item.title);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+            } catch (Exception e) {
+                Log.e(TAG, "无法启动独立播放器: " + e.getMessage());
+                // 回退到普通播放器
+                PlaybackPresenter.instance(getContext()).openVideo(item);
+            }
         }
     }
 } 
