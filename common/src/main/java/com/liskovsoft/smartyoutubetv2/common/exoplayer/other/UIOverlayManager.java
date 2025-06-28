@@ -29,7 +29,6 @@ public class UIOverlayManager {
     private final FrameLayout mRootView;
     private FrameLayout mSelectionOverlay;
     private TextView mTextView;
-    private int mScrollPosition = 0;
     
     public UIOverlayManager(Context context, FrameLayout rootView) {
         mContext = context;
@@ -41,7 +40,7 @@ public class UIOverlayManager {
      * 创建选词覆盖层
      */
     private void createSelectionOverlay() {
-        // 创建滚动视图容器
+        // 创建容器
         mSelectionOverlay = new FrameLayout(mContext);
         mSelectionOverlay.setBackgroundColor(Color.argb(178, 20, 20, 20));
         
@@ -64,12 +63,12 @@ public class UIOverlayManager {
         // 设置所有行的行距
         mTextView.setLineSpacing(10, 1.1f);
         
-        // 将文本视图添加到滚动容器中
+        // 将文本视图添加到容器中
         mSelectionOverlay.addView(mTextView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT));
         
-        // 设置滚动容器的布局参数
+        // 设置容器的布局参数
         FrameLayout.LayoutParams containerParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
@@ -108,7 +107,6 @@ public class UIOverlayManager {
         
         // 默认隐藏
         mSelectionOverlay.setVisibility(View.GONE);
-        mScrollPosition = 0;
     }
     
     /**
@@ -143,177 +141,46 @@ public class UIOverlayManager {
      * 应用文本样式
      */
     private void applyTextStyles(String text) {
-        try {
-            SpannableStringBuilder builder = new SpannableStringBuilder();
-            String[] lines = text.split("\n");
-            
-            int lineSpacing = 5;
-            boolean lastLineWasEmpty = false;
-            
-            for (int i = 0; i < lines.length; i++) {
-                String line = lines[i].trim();
-                
-                // 处理空行
-                if (line.isEmpty()) {
-                    if (!lastLineWasEmpty && i > 0) {
-                        builder.append("\n");
-                        lastLineWasEmpty = true;
-                    }
-                    continue;
-                }
-                
-                lastLineWasEmpty = false;
-                
-                // 处理不同类型的行
-                if (line.startsWith("【") && line.contains("】")) {
-                    applyTitleStyle(builder, line);
-                } else if (isPhoneticLine(line)) {
-                    applyPhoneticStyle(builder, line);
-                } else if (line.contains("：") && line.length() < 20) {
-                    applySectionTitleStyle(builder, line);
-                } else if (line.startsWith("注意：")) {
-                    applyWarningStyle(builder, line);
-                } else if (line.startsWith("•")) {
-                    applyListItemStyle(builder, line);
-                } else if (line.matches("^\\d+\\..*")) {
-                    applyNumberedListStyle(builder, line);
-                } else {
-                    applyNormalStyle(builder, line);
-                }
-                
-                // 除了最后一行，每行后面添加换行符
-                if (i < lines.length - 1) {
-                    builder.append("\n");
-                    if (!(line.startsWith("【") && line.contains("】"))) {
-                        if (line.contains("：") && line.length() < 20) {
-                            builder.append("\n");
-                        }
-                    }
-                }
-            }
-            
-            mTextView.setText(builder);
-            mTextView.setLineSpacing(lineSpacing, 1.1f);
-            
-            // 动态调整窗口大小
-            mTextView.post(this::adjustOverlaySize);
-            
-        } catch (Exception e) {
-            Log.w(TAG, "应用文本样式失败: " + e.getMessage());
-            mTextView.setText(text);
-            mTextView.post(this::setDefaultSize);
-        }
-    }
-    
-    /**
-     * 应用标题样式
-     */
-    private void applyTitleStyle(SpannableStringBuilder builder, String line) {
-        int bracketEnd = line.indexOf("】") + 1;
-        String titlePart = line.substring(0, bracketEnd);
-        String afterTitle = "";
-        
-        if (bracketEnd < line.length()) {
-            afterTitle = line.substring(bracketEnd);
+        if (text == null || text.isEmpty()) {
+            mTextView.setText("");
+            return;
         }
         
-        // 处理标题部分
-        SpannableString titleSpan = new SpannableString(titlePart);
-        titleSpan.setSpan(new ForegroundColorSpan(Color.rgb(255, 200, 0)), 0, titlePart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        titleSpan.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, titlePart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        titleSpan.setSpan(new RelativeSizeSpan(1.2f), 0, titlePart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        builder.append(titleSpan);
-        
-        // 处理标题后的内容（如果有），主要是音标
-        if (!afterTitle.isEmpty()) {
-            if (afterTitle.contains("[") && afterTitle.contains("]")) {
-                SpannableString phoneticsSpan = new SpannableString(afterTitle);
-                phoneticsSpan.setSpan(new ForegroundColorSpan(Color.CYAN), 0, afterTitle.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                phoneticsSpan.setSpan(new RelativeSizeSpan(0.9f), 0, afterTitle.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                builder.append(phoneticsSpan);
+        // 检查是否包含换行符
+        if (text.contains("\n")) {
+            // 分割文本并应用不同样式
+            String[] parts = text.split("\n\n", 2);
+            
+            if (parts.length > 1) {
+                // 创建SpannableStringBuilder
+                SpannableStringBuilder builder = new SpannableStringBuilder();
+                
+                // 为标题部分添加样式
+                SpannableString titleSpan = new SpannableString(parts[0]);
+                titleSpan.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 
+                        0, titleSpan.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                titleSpan.setSpan(new RelativeSizeSpan(1.2f), 
+                        0, titleSpan.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                titleSpan.setSpan(new ForegroundColorSpan(Color.rgb(255, 255, 150)), 
+                        0, titleSpan.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                
+                // 为内容部分添加样式
+                SpannableString contentSpan = new SpannableString("\n\n" + parts[1]);
+                
+                // 将两部分合并
+                builder.append(titleSpan);
+                builder.append(contentSpan);
+                
+                mTextView.setText(builder);
             } else {
-                builder.append(afterTitle);
+                mTextView.setText(text);
             }
-        }
-    }
-    
-    /**
-     * 检查是否是音标行
-     */
-    private boolean isPhoneticLine(String line) {
-        return (line.contains("[") && line.contains("]") && 
-                (line.contains("音标") || line.contains("美") || line.contains("英"))) ||
-               line.matches(".*(?:美式发音|美音|音标)[:：].*\\[.*\\].*");
-    }
-    
-    /**
-     * 应用音标样式
-     */
-    private void applyPhoneticStyle(SpannableStringBuilder builder, String line) {
-        SpannableString ss = new SpannableString(line);
-        ss.setSpan(new ForegroundColorSpan(Color.CYAN), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        builder.append(ss);
-    }
-    
-    /**
-     * 应用段落标题样式
-     */
-    private void applySectionTitleStyle(SpannableStringBuilder builder, String line) {
-        SpannableString ss = new SpannableString(line);
-        ss.setSpan(new ForegroundColorSpan(Color.rgb(255, 165, 0)), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        ss.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        ss.setSpan(new RelativeSizeSpan(1.1f), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        builder.append(ss);
-    }
-    
-    /**
-     * 应用警告样式
-     */
-    private void applyWarningStyle(SpannableStringBuilder builder, String line) {
-        SpannableString ss = new SpannableString(line);
-        ss.setSpan(new ForegroundColorSpan(Color.rgb(255, 100, 100)), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        ss.setSpan(new StyleSpan(android.graphics.Typeface.ITALIC), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        builder.append(ss);
-    }
-    
-    /**
-     * 应用列表项样式
-     */
-    private void applyListItemStyle(SpannableStringBuilder builder, String line) {
-        SpannableString ss = new SpannableString("  " + line);
-        ss.setSpan(new ForegroundColorSpan(Color.WHITE), 0, ss.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        ss.setSpan(new ForegroundColorSpan(Color.rgb(120, 230, 120)), 2, 3, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        builder.append(ss);
-    }
-    
-    /**
-     * 应用编号列表样式
-     */
-    private void applyNumberedListStyle(SpannableStringBuilder builder, String line) {
-        int dotIndex = line.indexOf('.');
-        if (dotIndex > 0) {
-            SpannableString numberPart = new SpannableString(line.substring(0, dotIndex+1) + " ");
-            numberPart.setSpan(new ForegroundColorSpan(Color.rgb(180, 180, 255)), 0, numberPart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            numberPart.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, numberPart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            
-            SpannableString examplePart = new SpannableString(line.substring(dotIndex+1).trim());
-            examplePart.setSpan(new ForegroundColorSpan(Color.LTGRAY), 0, examplePart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            examplePart.setSpan(new StyleSpan(android.graphics.Typeface.ITALIC), 0, examplePart.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            
-            builder.append(numberPart);
-            builder.append(examplePart);
         } else {
-            applyNormalStyle(builder, line);
+            mTextView.setText(text);
         }
-    }
-    
-    /**
-     * 应用普通样式
-     */
-    private void applyNormalStyle(SpannableStringBuilder builder, String line) {
-        SpannableString ss = new SpannableString(line);
-        ss.setSpan(new ForegroundColorSpan(Color.rgb(220, 220, 220)), 0, line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        builder.append(ss);
+        
+        // 调整覆盖层大小
+        adjustOverlaySize();
     }
     
     /**
@@ -370,26 +237,6 @@ public class UIOverlayManager {
             
             Log.d(TAG, "动态调整窗口大小: 宽度=" + idealWidth + ", 高度=" + idealHeight);
         }
-        
-        // 重置滚动位置
-        mScrollPosition = 0;
-        mTextView.scrollTo(0, 0);
-    }
-    
-    /**
-     * 设置默认大小
-     */
-    private void setDefaultSize() {
-        try {
-            ViewGroup.LayoutParams params = mSelectionOverlay.getLayoutParams();
-            if (params != null) {
-                int screenWidth = mContext.getResources().getDisplayMetrics().widthPixels;
-                params.width = (int)(screenWidth * 0.7f);
-                mSelectionOverlay.setLayoutParams(params);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "调整默认大小失败: " + e.getMessage());
-        }
     }
     
     /**
@@ -426,87 +273,5 @@ public class UIOverlayManager {
      */
     public boolean isOverlayVisible() {
         return mSelectionOverlay != null && mSelectionOverlay.getVisibility() == View.VISIBLE;
-    }
-    
-    /**
-     * 按页滚动解释窗口
-     */
-    public void scrollDefinitionByPage(int direction) {
-        if (mTextView != null) {
-            float actualLineHeight = mTextView.getLineHeight();
-            int viewHeight = mTextView.getHeight() - mTextView.getPaddingTop() - mTextView.getPaddingBottom();
-            int totalLines = mTextView.getLineCount();
-            
-            int firstVisibleLine = 0;
-            int lastVisibleLine = 0;
-            
-            try {
-                android.text.Layout layout = mTextView.getLayout();
-                if (layout != null) {
-                    firstVisibleLine = layout.getLineForVertical(mScrollPosition);
-                    lastVisibleLine = layout.getLineForVertical(mScrollPosition + viewHeight);
-                    
-                    if (mScrollPosition + viewHeight < layout.getLineBottom(lastVisibleLine)) {
-                        lastVisibleLine--;
-                    }
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "计算可见行出错: " + e.getMessage());
-            }
-            
-            int targetLine;
-            if (direction > 0) {
-                // 向下滚动
-                targetLine = Math.min(lastVisibleLine + 1, totalLines - 1);
-                int linesToShow = Math.max(1, (int)(viewHeight / actualLineHeight * 0.8));
-                targetLine = Math.min(targetLine + linesToShow, totalLines - 1);
-                
-                try {
-                    if (mTextView.getLayout() != null) {
-                        mScrollPosition = mTextView.getLayout().getLineTop(targetLine);
-                        
-                        if (targetLine == totalLines - 1) {
-                            int lineBottom = mTextView.getLayout().getLineBottom(targetLine);
-                            if (mScrollPosition + viewHeight < lineBottom) {
-                                mScrollPosition = lineBottom - viewHeight;
-                                mScrollPosition += mTextView.getPaddingBottom();
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    mScrollPosition += viewHeight;
-                }
-            } else {
-                // 向上滚动
-                targetLine = Math.max(firstVisibleLine - 1, 0);
-                int linesToShow = Math.max(1, (int)(viewHeight / actualLineHeight * 0.8));
-                targetLine = Math.max(targetLine - linesToShow, 0);
-                
-                try {
-                    if (mTextView.getLayout() != null) {
-                        mScrollPosition = mTextView.getLayout().getLineTop(targetLine);
-                    }
-                } catch (Exception e) {
-                    mScrollPosition -= viewHeight;
-                }
-            }
-            
-            // 确保不滚动超出范围
-            if (mScrollPosition < 0) {
-                mScrollPosition = 0;
-            }
-            
-            int textHeight = totalLines * (int)actualLineHeight;
-            int extraBottomPadding = (int)(actualLineHeight * 0.3);
-            int maxScroll = Math.max(0, textHeight - viewHeight + extraBottomPadding);
-            
-            if (mScrollPosition > maxScroll) {
-                mScrollPosition = maxScroll;
-            }
-            
-            // 应用滚动
-            mTextView.scrollTo(0, mScrollPosition);
-            mTextView.setLineSpacing(0, 0.9f);
-        }
     }
 }

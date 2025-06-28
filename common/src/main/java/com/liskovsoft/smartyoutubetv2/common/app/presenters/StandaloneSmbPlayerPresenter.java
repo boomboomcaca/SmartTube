@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.widget.FrameLayout;
 
 import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
@@ -177,6 +178,41 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
                         if (mExoPlayer.getTextComponent() != null) {
                             mExoPlayer.getTextComponent().addTextOutput(mSubtitleManager);
                         }
+                        
+                        // 初始化字幕选词控制器
+                        try {
+                            Log.d(TAG, "尝试初始化字幕选词控制器");
+                            
+                            // 查找字幕视图
+                            if (playerView.getParent() instanceof FrameLayout) {
+                                FrameLayout rootView = (FrameLayout) playerView.getParent();
+                                Log.d(TAG, "找到根视图，调用initWordSelectionController");
+                                
+                                // 使用接口方法而不是直接类型转换
+                                StandaloneSmbPlayerView view = getView();
+                                // 检查view是否实现了initWordSelectionController方法
+                                if (view != null) {
+                                    Log.d(TAG, "尝试初始化字幕选词控制器，view类型: " + view.getClass().getName());
+                                    
+                                    // 直接调用接口方法，不需要反射
+                                    view.initWordSelectionController(subtitleView, rootView);
+                                    
+                                    // 检查是否有字幕文本
+                                    if (subtitleView.getCues() != null && !subtitleView.getCues().isEmpty()) {
+                                        Log.d(TAG, "字幕视图已有字幕内容: " + subtitleView.getCues().size() + " 个Cue");
+                                    } else {
+                                        Log.d(TAG, "字幕视图暂无字幕内容");
+                                    }
+                                } else {
+                                    Log.e(TAG, "无法初始化字幕选词控制器: view为null");
+                                }
+                            } else {
+                                Log.e(TAG, "父视图不是FrameLayout，无法初始化字幕选词控制器");
+                            }
+                        } catch (Exception e) {
+                            Log.e(TAG, "初始化字幕选词控制器失败: " + e.getMessage(), e);
+                        }
+                        
                         Log.d(TAG, "字幕管理器初始化成功");
                     } else {
                         Log.e(TAG, "找不到字幕视图");
@@ -346,6 +382,9 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
         String videoPath = videoUri.toString();
         String basePath = videoPath.substring(0, videoPath.lastIndexOf('.'));
         
+        Log.d(TAG, "开始查找外部字幕文件，视频路径: " + videoPath);
+        Log.d(TAG, "字幕基础路径: " + basePath);
+        
         // 支持的字幕格式和语言后缀
         String[] subtitleFormats = {".srt", ".vtt"};
         String[] languageSuffixes = {"", ".zh", ".en", ".zh-CN", ".zh-TW", ".en-US", ".en-GB"};
@@ -354,6 +393,8 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
             for (String lang : languageSuffixes) {
                 String subtitlePath = basePath + lang + format;
                 Uri subtitleUri = Uri.parse(subtitlePath);
+                
+                Log.d(TAG, "尝试查找字幕文件: " + subtitlePath);
                 
                 try {
                     // 尝试打开字幕文件

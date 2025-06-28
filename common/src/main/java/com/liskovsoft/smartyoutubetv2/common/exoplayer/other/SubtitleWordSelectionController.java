@@ -16,6 +16,7 @@ import com.google.android.exoplayer2.ui.SubtitleView;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
+import com.liskovsoft.smartyoutubetv2.common.app.views.StandaloneSmbPlayerView;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -114,6 +115,8 @@ public class SubtitleWordSelectionController {
      * 进入选词模式
      */
     public void enterWordSelectionMode(boolean fromStart) {
+        Log.d(TAG, "enterWordSelectionMode被调用，fromStart=" + fromStart);
+        
         if (!mIsInitialized) {
             Log.d(TAG, "控制器尚未初始化，延迟激活选词模式");
             mPendingActivation = true;
@@ -133,11 +136,8 @@ public class SubtitleWordSelectionController {
             return;
         }
         
-        // 暂停视频
-        PlaybackView view = mPlaybackPresenter.getView();
-        if (view != null) {
-            view.setPlayWhenReady(false);
-        }
+        // 暂停视频 - 确保在任何情况下都暂停视频
+        pauseVideo();
         
         mIsWordSelectionMode = true;
         mIsShowingDefinition = false;
@@ -166,6 +166,26 @@ public class SubtitleWordSelectionController {
         highlightCurrentWord();
         
         Log.d(TAG, "已进入选词模式，单词数量: " + mWords.length + ", 当前索引: " + mCurrentWordIndex);
+    }
+    
+    /**
+     * 确保视频暂停
+     */
+    private void pauseVideo() {
+        // 首先尝试通过PlaybackPresenter暂停
+        if (mPlaybackPresenter != null && mPlaybackPresenter.getView() != null) {
+            Log.d(TAG, "通过PlaybackPresenter暂停视频");
+            mPlaybackPresenter.getView().setPlayWhenReady(false);
+            return;
+        }
+        
+        // 如果是在SMB播放器中，尝试通过Context接口暂停
+        if (mContext instanceof StandaloneSmbPlayerView) {
+            Log.d(TAG, "通过StandaloneSmbPlayerView暂停视频");
+            ((StandaloneSmbPlayerView) mContext).play(false);
+        } else {
+            Log.d(TAG, "无法识别的播放器类型，无法暂停视频");
+        }
     }
     
     /**
@@ -274,14 +294,14 @@ public class SubtitleWordSelectionController {
                 
             case KeyEvent.KEYCODE_DPAD_UP:
                 if (mIsShowingDefinition) {
-                    mUIManager.scrollDefinitionByPage(-1);
+                    // 上方向键不做特殊处理
                     return true;
                 }
                 return false;
                 
             case KeyEvent.KEYCODE_DPAD_DOWN:
                 if (mIsShowingDefinition) {
-                    mUIManager.scrollDefinitionByPage(1);
+                    // 下方向键不做特殊处理
                     return true;
                 }
                 return false;
@@ -468,7 +488,19 @@ public class SubtitleWordSelectionController {
      * 检查是否有字幕文本
      */
     public boolean hasSubtitleText() {
-        return mCurrentSubtitleText != null && !mCurrentSubtitleText.isEmpty();
+        boolean hasText = mCurrentSubtitleText != null && !mCurrentSubtitleText.isEmpty();
+        Log.d(TAG, "hasSubtitleText: " + hasText + ", mCurrentSubtitleText=" + 
+              (mCurrentSubtitleText != null ? "\"" + mCurrentSubtitleText + "\"" : "null"));
+        
+        if (!hasText) {
+            // 如果没有字幕文本，尝试刷新一次
+            refreshCurrentSubtitle();
+            hasText = mCurrentSubtitleText != null && !mCurrentSubtitleText.isEmpty();
+            Log.d(TAG, "刷新后 hasSubtitleText: " + hasText + ", mCurrentSubtitleText=" + 
+                  (mCurrentSubtitleText != null ? "\"" + mCurrentSubtitleText + "\"" : "null"));
+        }
+        
+        return hasText;
     }
     
     /**

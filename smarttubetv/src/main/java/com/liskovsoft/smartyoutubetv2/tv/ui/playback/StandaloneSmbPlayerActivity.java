@@ -15,10 +15,12 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
 
 import com.google.android.exoplayer2.ui.PlayerView;
+import com.google.android.exoplayer2.ui.SubtitleView;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.StandaloneSmbPlayerPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.StandaloneSmbPlayerView;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleWordSelectionController;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 
 /**
@@ -49,6 +51,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         }
     };
 
+    // 字幕选词相关
+    private SubtitleWordSelectionController mWordSelectionController;
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -59,6 +64,27 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         
         initViews();
         initListeners();
+        
+        // 尝试初始化字幕选词控制器
+        if (mPlayerView != null) {
+            mPlayerView.post(() -> {
+                try {
+                    SubtitleView subtitleView = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_subtitles);
+                    if (subtitleView != null && mPlayerView.getParent() instanceof FrameLayout) {
+                        FrameLayout rootView = (FrameLayout) mPlayerView.getParent();
+                        initWordSelectionController(subtitleView, rootView);
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "onCreate中初始化字幕选词控制器成功");
+                    } else {
+                        android.util.Log.e("StandaloneSmbPlayerActivity", "onCreate中无法初始化字幕选词控制器: " +
+                                "subtitleView=" + (subtitleView != null ? "有效" : "null") + 
+                                ", rootView=" + (mPlayerView.getParent() instanceof FrameLayout ? "有效" : "无效类型"));
+                    }
+                } catch (Exception e) {
+                    android.util.Log.e("StandaloneSmbPlayerActivity", "onCreate中初始化字幕选词控制器失败", e);
+                }
+            });
+        }
+        
         mPresenter.setView(this);
 
         // 从Intent中获取视频数据
@@ -244,6 +270,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
 
     @Override
     protected void onDestroy() {
+        if (mWordSelectionController != null) {
+            mWordSelectionController.release();
+            mWordSelectionController = null;
+        }
         mPresenter.releasePlayer();
         super.onDestroy();
     }
@@ -266,8 +296,18 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // 首先检查是否在字幕选词模式下
+        if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
+            return mWordSelectionController.handleKeyEvent(event);
+        }
+        
         // 任何按键操作都会显示控制界面
         showControls();
+        
+        // 添加日志输出，追踪长按事件
+        if (event.isLongPress()) {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "检测到长按事件: keyCode=" + keyCode);
+        }
         
         // 处理媒体控制键
         switch (keyCode) {
@@ -285,10 +325,30 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 play(!isPlaying());
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
+                // 检查是否有字幕文本，有则进入选词模式，否则执行快退
+                android.util.Log.d("StandaloneSmbPlayerActivity", "按下左键，检查是否有字幕文本");
+                if (mWordSelectionController != null && hasSubtitleText()) {
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "点击左键，尝试进入选词模式(从末尾开始)");
+                    mWordSelectionController.enterWordSelectionMode(false);
+                    return true;
+                }
+                android.util.Log.d("StandaloneSmbPlayerActivity", "没有字幕文本或控制器为空，执行快退操作");
                 seekBackward();
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
+                // 检查是否有字幕文本，有则进入选词模式，否则执行快进
+                android.util.Log.d("StandaloneSmbPlayerActivity", "按下右键，检查是否有字幕文本");
+                if (mWordSelectionController != null && hasSubtitleText()) {
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "点击右键，尝试进入选词模式(从开头开始)");
+                    mWordSelectionController.enterWordSelectionMode(true);
+                    return true;
+                }
+                android.util.Log.d("StandaloneSmbPlayerActivity", "没有字幕文本或控制器为空，执行快进操作");
                 seekForward();
+                return true;
+            case KeyEvent.KEYCODE_MENU:
+                // 按下菜单键进入选词模式
+                enterWordSelectionMode(true);
                 return true;
             case KeyEvent.KEYCODE_BACK:
                 finish();
@@ -296,6 +356,28 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         }
         
         return super.onKeyDown(keyCode, event);
+    }
+    
+    /**
+     * 检查当前是否有字幕文本
+     */
+    private boolean hasSubtitleText() {
+        boolean result = mWordSelectionController != null && mWordSelectionController.hasSubtitleText();
+        android.util.Log.d("StandaloneSmbPlayerActivity", "hasSubtitleText: " + result + 
+                          ", mWordSelectionController=" + (mWordSelectionController != null ? "非空" : "为空"));
+        return result;
+    }
+    
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        // 不再需要特殊处理长按事件，直接调用父类方法
+        return super.dispatchKeyEvent(event);
+    }
+    
+    @Override
+    public boolean onKeyLongPress(int keyCode, KeyEvent event) {
+        // 不再需要在长按事件中处理选词模式
+        return super.onKeyLongPress(keyCode, event);
     }
     
     private void seekBackward() {
@@ -363,5 +445,65 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      */
     public PlayerView getPlayerView() {
         return mPlayerView;
+    }
+    
+    /**
+     * 初始化字幕选词控制器
+     */
+    public void initWordSelectionController(SubtitleView subtitleView, FrameLayout rootView) {
+        android.util.Log.d("StandaloneSmbPlayerActivity", "开始初始化字幕选词控制器");
+        
+        if (subtitleView != null && rootView != null) {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "字幕视图和根视图均有效，创建控制器");
+            mWordSelectionController = new SubtitleWordSelectionController(this, subtitleView, rootView);
+            android.util.Log.d("StandaloneSmbPlayerActivity", "字幕选词控制器初始化完成");
+        } else {
+            android.util.Log.e("StandaloneSmbPlayerActivity", "无法初始化字幕选词控制器: subtitleView=" + 
+                    (subtitleView != null ? "有效" : "null") + ", rootView=" + 
+                    (rootView != null ? "有效" : "null"));
+        }
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        android.util.Log.d("StandaloneSmbPlayerActivity", "onKeyUp: keyCode=" + keyCode);
+        
+        // 如果是在字幕选词模式下，将事件传递给字幕选词控制器
+        if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
+            return mWordSelectionController.handleKeyEvent(event);
+        }
+        
+        // 左右键的处理已经在onKeyDown中完成
+        // 不再需要在这里处理快进快退
+        
+        return super.onKeyUp(keyCode, event);
+    }
+
+    /**
+     * 手动触发进入选词模式
+     * 可以通过菜单或其他UI元素调用此方法
+     */
+    private void enterWordSelectionMode(boolean fromStart) {
+        android.util.Log.d("StandaloneSmbPlayerActivity", "手动触发进入选词模式: fromStart=" + fromStart);
+        
+        if (mWordSelectionController != null) {
+            mWordSelectionController.enterWordSelectionMode(fromStart);
+        } else {
+            android.util.Log.e("StandaloneSmbPlayerActivity", "无法进入选词模式: 字幕选词控制器为null");
+            
+            // 尝试初始化字幕选词控制器
+            if (mPlayerView != null) {
+                SubtitleView subtitleView = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_subtitles);
+                if (subtitleView != null && mPlayerView.getParent() instanceof FrameLayout) {
+                    FrameLayout rootView = (FrameLayout) mPlayerView.getParent();
+                    initWordSelectionController(subtitleView, rootView);
+                    
+                    // 再次尝试进入选词模式
+                    if (mWordSelectionController != null) {
+                        mWordSelectionController.enterWordSelectionMode(fromStart);
+                    }
+                }
+            }
+        }
     }
 } 
