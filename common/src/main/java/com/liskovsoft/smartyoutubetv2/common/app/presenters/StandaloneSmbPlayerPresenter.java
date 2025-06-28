@@ -340,7 +340,10 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
 
     @Override
     public void onSeekProcessed() {
-        // 不需要实现
+        // seek操作完成后立即更新UI
+        if (mExoPlayer != null && getView() != null) {
+            getView().updatePosition(mExoPlayer.getCurrentPosition());
+        }
     }
 
     @Override

@@ -157,6 +157,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                     // 设置新的播放位置
                     long newPositionMs = calculatePositionFromProgress(seekBar.getProgress());
                     mPresenter.setPositionMs(newPositionMs);
+                    
+                    // 立即更新UI，确保进度条位置与实际播放位置同步
+                    updatePosition(newPositionMs);
+                    
                     mIsUserSeeking = false;
                     
                     // 重新启动自动隐藏
@@ -384,6 +388,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         long position = mPresenter.getPositionMs();
         long newPosition = Math.max(0, position - 10000); // 后退10秒
         mPresenter.setPositionMs(newPosition);
+        
+        // 立即更新UI显示，而不等待下一次进度更新周期
+        updatePosition(newPosition);
+        
         MessageHelpers.showMessage(this, "后退10秒");
     }
     
@@ -392,6 +400,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         long duration = mPresenter.getDurationMs();
         long newPosition = Math.min(duration, position + 30000); // 前进30秒
         mPresenter.setPositionMs(newPosition);
+        
+        // 立即更新UI显示，而不等待下一次进度更新周期
+        updatePosition(newPosition);
+        
         MessageHelpers.showMessage(this, "前进30秒");
     }
     
