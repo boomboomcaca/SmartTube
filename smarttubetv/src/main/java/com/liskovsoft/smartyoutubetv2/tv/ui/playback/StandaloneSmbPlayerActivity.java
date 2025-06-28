@@ -261,7 +261,65 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
 
     @Override
     public void play(boolean play) {
-        mPresenter.setPlayWhenReady(play);
+        android.util.Log.d("StandaloneSmbPlayerActivity", "play方法被调用: " + (play ? "播放" : "暂停"));
+        if (mPresenter != null) {
+            try {
+                // 直接操作ExoPlayer确保播放状态正确设置
+                if (play) {
+                    // 先检查播放器状态
+                    if (mPresenter.isPlayerReady()) {
+                        // 正常设置播放状态
+                        mPresenter.setPlayWhenReady(true);
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "已设置播放器状态为: 播放");
+                        
+                        // 添加验证检查确认播放状态已设置
+                        mHandler.postDelayed(() -> {
+                            if (!isPlaying() && mPresenter != null) {
+                                android.util.Log.d("StandaloneSmbPlayerActivity", "验证检查：播放状态未生效，尝试forcePlay()");
+                                mPresenter.forcePlay();
+                            } else {
+                                android.util.Log.d("StandaloneSmbPlayerActivity", "验证检查：播放状态已正确设置");
+                            }
+                        }, 100);
+                    } else {
+                        // 播放器未准备好，使用强制播放
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "播放器未准备好，尝试强制播放");
+                        mPresenter.forcePlay();
+                        
+                        // 添加延迟检查，确保播放状态正确设置
+                        mHandler.postDelayed(() -> {
+                            if (!isPlaying() && mPresenter != null && mPresenter.hasExoPlayer()) {
+                                android.util.Log.d("StandaloneSmbPlayerActivity", "延迟检查：播放未恢复，再次尝试");
+                                mPresenter.forcePlay();
+                                
+                                // 最后尝试直接访问播放器
+                                if (mPlayerView != null && mPlayerView.getPlayer() != null) {
+                                    android.util.Log.d("StandaloneSmbPlayerActivity", "最终尝试：直接设置PlayerView的播放状态");
+                                    mPlayerView.getPlayer().setPlayWhenReady(true);
+                                }
+                            }
+                        }, 250);
+                    }
+                } else {
+                    // 暂停播放
+                    mPresenter.setPlayWhenReady(false);
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "已设置播放器状态为: 暂停");
+                }
+            } catch (Exception e) {
+                android.util.Log.e("StandaloneSmbPlayerActivity", "设置播放状态失败", e);
+                // 捕获异常后仍然尝试设置播放状态
+                try {
+                    if (play && mPlayerView != null && mPlayerView.getPlayer() != null) {
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "尝试恢复方案：直接设置PlayerView的播放状态");
+                        mPlayerView.getPlayer().setPlayWhenReady(true);
+                    }
+                } catch (Exception ex) {
+                    android.util.Log.e("StandaloneSmbPlayerActivity", "恢复方案也失败", ex);
+                }
+            }
+        } else {
+            android.util.Log.e("StandaloneSmbPlayerActivity", "无法设置播放状态：mPresenter为null");
+        }
     }
 
     @Override
@@ -333,9 +391,53 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             // 检查是否在选词模式
             if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
                 android.util.Log.d("StandaloneSmbPlayerActivity", "返回键：退出选词模式");
-                mWordSelectionController.exitWordSelectionMode();
-                // 确保视频继续播放
-                play(true);
+                
+                android.util.Log.d("StandaloneSmbPlayerActivity", "退出选词模式并恢复播放流程开始");
+                
+                // 退出选词模式前先暂存当前播放状态
+                final boolean wasPlaying = true; // 退出选词模式总是恢复播放
+                android.util.Log.d("StandaloneSmbPlayerActivity", "退出选词模式后将恢复播放");
+                
+                try {
+                    // 退出选词模式
+                    mWordSelectionController.exitWordSelectionMode();
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "已成功退出选词模式");
+                } catch (Exception e) {
+                    android.util.Log.e("StandaloneSmbPlayerActivity", "退出选词模式时出错", e);
+                }
+                
+                // 确保恢复播放 - 使用多级保障机制确保播放恢复
+                try {
+                    // 第一级：直接调用play方法
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "第一级恢复：调用play(true)");
+                    play(true);
+                    
+                    // 第二级：延迟250ms后检查播放状态，如果未播放则再次尝试
+                    mHandler.postDelayed(() -> {
+                        if (!isPlaying() && mPresenter != null) {
+                            android.util.Log.d("StandaloneSmbPlayerActivity", "第二级恢复：播放未恢复，调用forcePlay()");
+                            mPresenter.forcePlay();
+                            
+                            // 第三级：再次延迟检查
+                            mHandler.postDelayed(() -> {
+                                if (!isPlaying() && mPresenter != null) {
+                                    android.util.Log.d("StandaloneSmbPlayerActivity", "第三级恢复：播放仍未恢复，再次尝试");
+                                    try {
+                                        // 尝试重新初始化播放器
+                                        if (mPlayerView != null && mPlayerView.getPlayer() != null) {
+                                            android.util.Log.d("StandaloneSmbPlayerActivity", "尝试直接操作PlayerView");
+                                            mPlayerView.getPlayer().setPlayWhenReady(true);
+                                        }
+                                    } catch (Exception e) {
+                                        android.util.Log.e("StandaloneSmbPlayerActivity", "第三级恢复失败", e);
+                                    }
+                                }
+                            }, 250);
+                        }
+                    }, 250);
+                } catch (Exception e) {
+                    android.util.Log.e("StandaloneSmbPlayerActivity", "恢复播放时出错", e);
+                }
                 return true;
             }
             
@@ -354,30 +456,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             return true;
         }
         
-        // 非返回键，显示控制界面
-        showControls();
-        
-        // 添加日志输出，追踪长按事件
-        if (event.isLongPress()) {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "检测到长按事件: keyCode=" + keyCode);
-        }
-        
-        // 处理媒体控制键
-        switch (keyCode) {
-            case KeyEvent.KEYCODE_MEDIA_PLAY:
-                play(true);
-                return true;
-            case KeyEvent.KEYCODE_MEDIA_PAUSE:
-                play(false);
-                return true;
-            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-                play(!isPlaying());
-                return true;
-            case KeyEvent.KEYCODE_DPAD_CENTER:
-            case KeyEvent.KEYCODE_ENTER:
-                play(!isPlaying());
-                return true;
-            case KeyEvent.KEYCODE_DPAD_LEFT:
+        // 左右键特殊处理，不自动显示控制界面
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            // 处理左右键
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
                 // 1. 如果控制栏可见，执行快退操作
                 // 2. 如果控制栏不可见且有字幕文本，进入选词模式
                 // 3. 如果控制栏不可见且没有字幕，不做任何操作
@@ -399,7 +481,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 // 既没有控制栏也没有字幕，不做任何操作
                 android.util.Log.d("StandaloneSmbPlayerActivity", "左键：控制栏不可见，无字幕，不执行任何操作");
                 return true;
-            case KeyEvent.KEYCODE_DPAD_RIGHT:
+            } else { // KEYCODE_DPAD_RIGHT
                 // 1. 如果控制栏可见，执行快进操作
                 // 2. 如果控制栏不可见且有字幕文本，进入选词模式
                 // 3. 如果控制栏不可见且没有字幕，不做任何操作
@@ -420,6 +502,32 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 
                 // 既没有控制栏也没有字幕，不做任何操作
                 android.util.Log.d("StandaloneSmbPlayerActivity", "右键：控制栏不可见，无字幕，不执行任何操作");
+                return true;
+            }
+        }
+        
+        // 其他按键，显示控制界面
+        showControls();
+        
+        // 添加日志输出，追踪长按事件
+        if (event.isLongPress()) {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "检测到长按事件: keyCode=" + keyCode);
+        }
+        
+        // 处理媒体控制键
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_MEDIA_PLAY:
+                play(true);
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_PAUSE:
+                play(false);
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                play(!isPlaying());
+                return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+                play(!isPlaying());
                 return true;
             case KeyEvent.KEYCODE_MENU:
                 // 按下菜单键进入选词模式

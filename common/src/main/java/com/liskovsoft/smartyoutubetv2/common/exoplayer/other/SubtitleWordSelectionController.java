@@ -785,24 +785,55 @@ public class SubtitleWordSelectionController {
      */
     public void exitWordSelectionMode() {
         if (!mIsWordSelectionMode) {
+            Log.d(TAG, "exitWordSelectionMode: 当前不在选词模式，无需退出");
             return;
         }
         
-        clearSubtitleHighlight();
-        hideDefinitionOverlay();
-        mTTSService.deleteCurrentAudioFile();
-        mTTSService.stopPlaying();
+        Log.d(TAG, "exitWordSelectionMode: 开始退出选词模式...");
+        
+        try {
+            clearSubtitleHighlight();
+            Log.d(TAG, "exitWordSelectionMode: 已清除字幕高亮");
+        } catch (Exception e) {
+            Log.e(TAG, "exitWordSelectionMode: 清除字幕高亮失败", e);
+        }
+        
+        try {
+            hideDefinitionOverlay();
+            Log.d(TAG, "exitWordSelectionMode: 已隐藏解释覆盖层");
+        } catch (Exception e) {
+            Log.e(TAG, "exitWordSelectionMode: 隐藏解释覆盖层失败", e);
+        }
+        
+        try {
+            mTTSService.deleteCurrentAudioFile();
+            mTTSService.stopPlaying();
+            Log.d(TAG, "exitWordSelectionMode: 已停止TTS播放");
+        } catch (Exception e) {
+            Log.e(TAG, "exitWordSelectionMode: 停止TTS播放失败", e);
+        }
         
         mIsWordSelectionMode = false;
         mIsShowingDefinition = false;
         
-        // 仅当PlaybackPresenter可用时才通过它恢复播放
-        // 在StandaloneSmbPlayerActivity中，我们会手动调用play(true)
-        if (mPlaybackPresenter != null && mPlaybackPresenter.getView() != null) {
-            mPlaybackPresenter.getView().setPlayWhenReady(true);
+        // 修改播放恢复逻辑：对所有类型都尝试恢复播放
+        try {
+            if (mPlaybackPresenter != null && mPlaybackPresenter.getView() != null) {
+                // 通过PlaybackPresenter恢复播放
+                Log.d(TAG, "exitWordSelectionMode: 通过PlaybackPresenter恢复播放");
+                mPlaybackPresenter.getView().setPlayWhenReady(true);
+            } 
+            
+            // 如果是在SMB播放器中，也直接尝试恢复播放
+            if (mContext instanceof StandaloneSmbPlayerView) {
+                Log.d(TAG, "exitWordSelectionMode: 在SMB播放器中主动恢复播放");
+                ((StandaloneSmbPlayerView) mContext).play(true);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "exitWordSelectionMode: 恢复播放失败", e);
         }
         
-        Log.d(TAG, "已退出选词模式");
+        Log.d(TAG, "exitWordSelectionMode: 已完全退出选词模式");
     }
     
     /**

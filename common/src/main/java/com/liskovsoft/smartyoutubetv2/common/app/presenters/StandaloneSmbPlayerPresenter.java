@@ -269,6 +269,46 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
     public boolean isPlaying() {
         return mExoPlayer != null && mExoPlayer.getPlayWhenReady() && mExoPlayer.getPlaybackState() == Player.STATE_READY;
     }
+    
+    /**
+     * 检查播放器是否已初始化并准备好接收命令
+     */
+    public boolean isPlayerReady() {
+        boolean result = mExoPlayer != null && 
+               (mExoPlayer.getPlaybackState() == Player.STATE_READY || 
+                mExoPlayer.getPlaybackState() == Player.STATE_BUFFERING || 
+                mExoPlayer.getPlaybackState() == Player.STATE_IDLE);
+        
+        Log.d(TAG, "isPlayerReady: " + result + 
+              ", mExoPlayer=" + (mExoPlayer != null ? "非空" : "null") + 
+              (mExoPlayer != null ? ", state=" + mExoPlayer.getPlaybackState() : ""));
+        
+        return result;
+    }
+    
+    /**
+     * 检查ExoPlayer是否存在
+     */
+    public boolean hasExoPlayer() {
+        return mExoPlayer != null;
+    }
+    
+    /**
+     * 强制恢复播放，即使播放器状态不是READY
+     */
+    public void forcePlay() {
+        Log.d(TAG, "强制恢复播放");
+        if (mExoPlayer != null) {
+            try {
+                mExoPlayer.setPlayWhenReady(true);
+                Log.d(TAG, "已设置播放器为播放状态");
+            } catch (Exception e) {
+                Log.e(TAG, "强制恢复播放失败", e);
+            }
+        } else {
+            Log.e(TAG, "无法强制恢复播放：mExoPlayer为null");
+        }
+    }
 
     public long getPositionMs() {
         return mExoPlayer != null ? mExoPlayer.getCurrentPosition() : 0;
