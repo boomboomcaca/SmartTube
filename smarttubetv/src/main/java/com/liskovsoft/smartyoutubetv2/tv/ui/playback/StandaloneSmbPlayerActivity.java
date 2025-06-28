@@ -1,10 +1,14 @@
 package com.liskovsoft.smartyoutubetv2.tv.ui.playback;
 
 import android.os.Bundle;
+import android.os.Handler;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -22,15 +26,28 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
  */
 public class StandaloneSmbPlayerActivity extends FragmentActivity implements StandaloneSmbPlayerView {
     private static final String TAG = StandaloneSmbPlayerActivity.class.getSimpleName();
+    private static final int AUTO_HIDE_DELAY_MS = 3000; // 3秒后自动隐藏UI
     
     private StandaloneSmbPlayerPresenter mPresenter;
     private PlayerView mPlayerView;
     private ProgressBar mProgressBar;
     private TextView mErrorTextView;
     private TextView mTitleTextView;
-    private FrameLayout mControlsContainer;
+    private LinearLayout mControlsContainer;
+    private LinearLayout mTitleContainer;
     private TextView mPositionView;
     private TextView mDurationView;
+    private SeekBar mSeekBar;
+    private Handler mHandler;
+    private boolean mIsUserSeeking;
+    private boolean mControlsVisible = true;
+    
+    private final Runnable mHideUIRunnable = new Runnable() {
+        @Override
+        public void run() {
+            hideControls();
+        }
+    };
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -38,7 +55,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         setContentView(R.layout.activity_standalone_smb_player);
 
         mPresenter = StandaloneSmbPlayerPresenter.instance(this);
+        mHandler = new Handler();
+        
         initViews();
+        initListeners();
         mPresenter.setView(this);
 
         // 从Intent中获取视频数据
@@ -46,6 +66,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         if (video != null) {
             mPresenter.openVideo(video);
             mPresenter.startProgressUpdates();
+            
+            // 启动自动隐藏UI的定时器
+            scheduleHideControls();
         } else {
             showError("未提供有效的视频数据");
         }
@@ -76,9 +99,78 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         mProgressBar = findViewById(R.id.progress_bar);
         mErrorTextView = findViewById(R.id.error_text);
         mTitleTextView = findViewById(R.id.video_title);
+        mTitleContainer = findViewById(R.id.title_container);
         mControlsContainer = findViewById(R.id.controls_container);
         mPositionView = findViewById(R.id.position_view);
         mDurationView = findViewById(R.id.duration_view);
+        mSeekBar = findViewById(R.id.seek_bar);
+    }
+    
+    private void initListeners() {
+        // 进度条拖动监听器
+        mSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser && mIsUserSeeking) {
+                    // 更新当前位置显示
+                    long positionMs = calculatePositionFromProgress(progress);
+                    mPositionView.setText(formatTime(positionMs));
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                mIsUserSeeking = true;
+                // 取消自动隐藏
+                mHandler.removeCallbacks(mHideUIRunnable);
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                if (mIsUserSeeking) {
+                    // 设置新的播放位置
+                    long newPositionMs = calculatePositionFromProgress(seekBar.getProgress());
+                    mPresenter.setPositionMs(newPositionMs);
+                    mIsUserSeeking = false;
+                    
+                    // 重新启动自动隐藏
+                    scheduleHideControls();
+                }
+            }
+        });
+        
+        // 点击播放器区域显示/隐藏控制界面
+        mPlayerView.setOnClickListener(v -> {
+            toggleControlsVisibility();
+        });
+    }
+    
+    /**
+     * 根据进度条值计算播放位置（毫秒）
+     */
+    private long calculatePositionFromProgress(int progress) {
+        long durationMs = mPresenter.getDurationMs();
+        if (durationMs <= 0) {
+            return 0;
+        }
+        
+        // 使用整数计算避免浮点数精度问题
+        // 进度条范围是0-1000
+        return durationMs * progress / 1000;
+    }
+    
+    /**
+     * 根据播放位置计算进度条值（0-1000）
+     */
+    private int calculateProgressFromPosition(long positionMs) {
+        long durationMs = mPresenter.getDurationMs();
+        if (durationMs <= 0) {
+            return 0;
+        }
+        
+        // 使用整数计算，先乘后除避免精度损失
+        // 进度条范围是0-1000
+        return (int) (positionMs * 1000 / durationMs);
     }
 
     @Override
@@ -109,6 +201,12 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         // 格式化时间为 HH:MM:SS
         String formattedTime = formatTime(positionMs);
         mPositionView.setText(formattedTime);
+        
+        // 更新进度条（只有在用户不拖动时）
+        if (!mIsUserSeeking) {
+            int progress = calculateProgressFromPosition(positionMs);
+            mSeekBar.setProgress(progress);
+        }
     }
 
     @Override
@@ -116,6 +214,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         // 格式化时间为 HH:MM:SS
         String formattedTime = formatTime(durationMs);
         mDurationView.setText(formattedTime);
+        
+        // 设置进度条最大值为1000，提高精度
+        mSeekBar.setMax(1000);
     }
 
     @Override
@@ -138,6 +239,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     protected void onStop() {
         super.onStop();
         mPresenter.stopProgressUpdates();
+        mHandler.removeCallbacks(mHideUIRunnable);
     }
 
     @Override
@@ -164,6 +266,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // 任何按键操作都会显示控制界面
+        showControls();
+        
         // 处理媒体控制键
         switch (keyCode) {
             case KeyEvent.KEYCODE_MEDIA_PLAY:
@@ -178,15 +283,12 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
                 play(!isPlaying());
-                showControls();
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
                 seekBackward();
-                showControls();
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 seekForward();
-                showControls();
                 return true;
             case KeyEvent.KEYCODE_BACK:
                 finish();
@@ -211,13 +313,49 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         MessageHelpers.showMessage(this, "前进30秒");
     }
     
+    /**
+     * 显示控制界面
+     */
     private void showControls() {
-        mControlsContainer.setVisibility(View.VISIBLE);
+        if (!mControlsVisible) {
+            mTitleContainer.setVisibility(View.VISIBLE);
+            mControlsContainer.setVisibility(View.VISIBLE);
+            mControlsVisible = true;
+        }
         
-        // 3秒后隐藏控制条
-        mControlsContainer.postDelayed(() -> {
+        // 重新安排自动隐藏
+        scheduleHideControls();
+    }
+    
+    /**
+     * 隐藏控制界面
+     */
+    private void hideControls() {
+        if (mControlsVisible) {
+            mTitleContainer.setVisibility(View.GONE);
             mControlsContainer.setVisibility(View.GONE);
-        }, 3000);
+            mControlsVisible = false;
+        }
+    }
+    
+    /**
+     * 切换控制界面显示/隐藏状态
+     */
+    private void toggleControlsVisibility() {
+        if (mControlsVisible) {
+            hideControls();
+            mHandler.removeCallbacks(mHideUIRunnable);
+        } else {
+            showControls();
+        }
+    }
+    
+    /**
+     * 安排自动隐藏控制界面的任务
+     */
+    private void scheduleHideControls() {
+        mHandler.removeCallbacks(mHideUIRunnable);
+        mHandler.postDelayed(mHideUIRunnable, AUTO_HIDE_DELAY_MS);
     }
     
     /**
