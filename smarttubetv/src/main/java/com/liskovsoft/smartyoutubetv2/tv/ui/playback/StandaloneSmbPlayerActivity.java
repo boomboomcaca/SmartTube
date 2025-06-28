@@ -28,7 +28,7 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
  */
 public class StandaloneSmbPlayerActivity extends FragmentActivity implements StandaloneSmbPlayerView {
     private static final String TAG = StandaloneSmbPlayerActivity.class.getSimpleName();
-    private static final int AUTO_HIDE_DELAY_MS = 3000; // 3秒后自动隐藏UI
+    private static final int AUTO_HIDE_DELAY_MS = 5000; // 5秒后自动隐藏UI
     
     private StandaloneSmbPlayerPresenter mPresenter;
     private PlayerView mPlayerView;
@@ -42,11 +42,12 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private SeekBar mSeekBar;
     private Handler mHandler;
     private boolean mIsUserSeeking;
-    private boolean mControlsVisible = true;
+    private boolean mControlsVisible = true; // 初始状态控制界面可见
     
     private final Runnable mHideUIRunnable = new Runnable() {
         @Override
         public void run() {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "执行自动隐藏控制栏");
             hideControls();
         }
     };
@@ -64,6 +65,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         
         initViews();
         initListeners();
+        
+        // 确保初始状态下控制栏可见
+        mControlsVisible = true;
+        android.util.Log.d("StandaloneSmbPlayerActivity", "onCreate: 初始化控制栏状态为可见, mControlsVisible=" + mControlsVisible);
         
         // 尝试初始化字幕选词控制器
         if (mPlayerView != null) {
@@ -300,12 +305,56 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // 记录当前控制栏状态
+        android.util.Log.d("StandaloneSmbPlayerActivity", "onKeyDown: keyCode=" + keyCode + ", 当前控制栏状态: " + 
+                          (mControlsVisible ? "可见" : "不可见") + ", mControlsVisible=" + mControlsVisible);
+        
         // 首先检查是否在字幕选词模式下
         if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
             return mWordSelectionController.handleKeyEvent(event);
         }
         
-        // 任何按键操作都会显示控制界面
+        // 返回键特殊处理，不自动显示控制界面
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // 多级返回处理逻辑
+            // 1. 如果有解释窗口打开，先关闭解释窗口
+            // 2. 如果在选词模式，退出选词模式
+            // 3. 如果控制栏可见，隐藏控制栏
+            // 4. 以上都不符合时，才退出视频播放
+            
+            // 检查是否有解释窗口
+            if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode() && 
+                    mWordSelectionController.isShowingDefinition()) {
+                android.util.Log.d("StandaloneSmbPlayerActivity", "返回键：关闭解释窗口");
+                mWordSelectionController.hideDefinitionOverlay();
+                return true;
+            }
+            
+            // 检查是否在选词模式
+            if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
+                android.util.Log.d("StandaloneSmbPlayerActivity", "返回键：退出选词模式");
+                mWordSelectionController.exitWordSelectionMode();
+                // 确保视频继续播放
+                play(true);
+                return true;
+            }
+            
+            // 检查控制栏是否可见
+            if (mControlsVisible) {
+                android.util.Log.d("StandaloneSmbPlayerActivity", "返回键：控制栏可见(mControlsVisible=" + mControlsVisible + ")，隐藏控制栏");
+                hideControls();
+                android.util.Log.d("StandaloneSmbPlayerActivity", "返回键：控制栏已隐藏，当前状态mControlsVisible=" + mControlsVisible);
+                mHandler.removeCallbacks(mHideUIRunnable);
+                return true;
+            }
+            
+            // 都不符合时，退出视频播放
+            android.util.Log.d("StandaloneSmbPlayerActivity", "返回键：所有条件都不满足，退出视频播放");
+            finish();
+            return true;
+        }
+        
+        // 非返回键，显示控制界面
         showControls();
         
         // 添加日志输出，追踪长按事件
@@ -329,33 +378,52 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 play(!isPlaying());
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                // 检查是否有字幕文本，有则进入选词模式，否则执行快退
-                android.util.Log.d("StandaloneSmbPlayerActivity", "按下左键，检查是否有字幕文本");
+                // 1. 如果控制栏可见，执行快退操作
+                // 2. 如果控制栏不可见且有字幕文本，进入选词模式
+                // 3. 如果控制栏不可见且没有字幕，不做任何操作
+                
+                // 检查控制栏是否可见
+                if (mControlsVisible) {
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "左键：控制栏可见，执行快退操作");
+                    seekBackward();
+                    return true;
+                } 
+                
+                // 控制栏不可见，检查是否有字幕文本
                 if (mWordSelectionController != null && hasSubtitleText()) {
-                    android.util.Log.d("StandaloneSmbPlayerActivity", "点击左键，尝试进入选词模式(从末尾开始)");
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "左键：控制栏不可见，有字幕，进入选词模式(从末尾开始)");
                     mWordSelectionController.enterWordSelectionMode(false);
                     return true;
                 }
-                android.util.Log.d("StandaloneSmbPlayerActivity", "没有字幕文本或控制器为空，执行快退操作");
-                seekBackward();
+                
+                // 既没有控制栏也没有字幕，不做任何操作
+                android.util.Log.d("StandaloneSmbPlayerActivity", "左键：控制栏不可见，无字幕，不执行任何操作");
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                // 检查是否有字幕文本，有则进入选词模式，否则执行快进
-                android.util.Log.d("StandaloneSmbPlayerActivity", "按下右键，检查是否有字幕文本");
+                // 1. 如果控制栏可见，执行快进操作
+                // 2. 如果控制栏不可见且有字幕文本，进入选词模式
+                // 3. 如果控制栏不可见且没有字幕，不做任何操作
+                
+                // 检查控制栏是否可见
+                if (mControlsVisible) {
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "右键：控制栏可见，执行快进操作");
+                    seekForward();
+                    return true;
+                }
+                
+                // 控制栏不可见，检查是否有字幕文本
                 if (mWordSelectionController != null && hasSubtitleText()) {
-                    android.util.Log.d("StandaloneSmbPlayerActivity", "点击右键，尝试进入选词模式(从开头开始)");
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "右键：控制栏不可见，有字幕，进入选词模式(从开头开始)");
                     mWordSelectionController.enterWordSelectionMode(true);
                     return true;
                 }
-                android.util.Log.d("StandaloneSmbPlayerActivity", "没有字幕文本或控制器为空，执行快进操作");
-                seekForward();
+                
+                // 既没有控制栏也没有字幕，不做任何操作
+                android.util.Log.d("StandaloneSmbPlayerActivity", "右键：控制栏不可见，无字幕，不执行任何操作");
                 return true;
             case KeyEvent.KEYCODE_MENU:
                 // 按下菜单键进入选词模式
                 enterWordSelectionMode(true);
-                return true;
-            case KeyEvent.KEYCODE_BACK:
-                finish();
                 return true;
         }
         
@@ -411,10 +479,21 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      * 显示控制界面
      */
     private void showControls() {
-        if (!mControlsVisible) {
-            mTitleContainer.setVisibility(View.VISIBLE);
-            mControlsContainer.setVisibility(View.VISIBLE);
-            mControlsVisible = true;
+        // 先检查当前状态
+        boolean wasVisible = mControlsVisible;
+        
+        // 更新UI
+        mTitleContainer.setVisibility(View.VISIBLE);
+        mControlsContainer.setVisibility(View.VISIBLE);
+        
+        // 更新状态变量
+        mControlsVisible = true;
+        
+        // 记录日志
+        if (!wasVisible) {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "显示控制栏，mControlsVisible从false变为true");
+        } else {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏已经是可见状态，保持mControlsVisible=true");
         }
         
         // 重新安排自动隐藏
@@ -425,10 +504,21 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      * 隐藏控制界面
      */
     private void hideControls() {
-        if (mControlsVisible) {
-            mTitleContainer.setVisibility(View.GONE);
-            mControlsContainer.setVisibility(View.GONE);
-            mControlsVisible = false;
+        // 先检查当前状态
+        boolean wasVisible = mControlsVisible;
+        
+        // 更新UI
+        mTitleContainer.setVisibility(View.GONE);
+        mControlsContainer.setVisibility(View.GONE);
+        
+        // 更新状态变量
+        mControlsVisible = false;
+        
+        // 记录日志
+        if (wasVisible) {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "隐藏控制栏，mControlsVisible从true变为false");
+        } else {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏已经是隐藏状态，保持mControlsVisible=false");
         }
     }
     
@@ -436,10 +526,15 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      * 切换控制界面显示/隐藏状态
      */
     private void toggleControlsVisibility() {
+        android.util.Log.d("StandaloneSmbPlayerActivity", "toggleControlsVisibility被调用，当前控制栏状态: " + 
+                          (mControlsVisible ? "可见" : "不可见") + ", mControlsVisible=" + mControlsVisible);
+                          
         if (mControlsVisible) {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "切换控制栏：当前可见，准备隐藏");
             hideControls();
             mHandler.removeCallbacks(mHideUIRunnable);
         } else {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "切换控制栏：当前不可见，准备显示");
             showControls();
         }
     }
@@ -450,6 +545,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private void scheduleHideControls() {
         mHandler.removeCallbacks(mHideUIRunnable);
         mHandler.postDelayed(mHideUIRunnable, AUTO_HIDE_DELAY_MS);
+        android.util.Log.d("StandaloneSmbPlayerActivity", "安排" + (AUTO_HIDE_DELAY_MS/1000) + "秒后自动隐藏控制栏");
     }
     
     /**
@@ -478,7 +574,8 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        android.util.Log.d("StandaloneSmbPlayerActivity", "onKeyUp: keyCode=" + keyCode);
+        android.util.Log.d("StandaloneSmbPlayerActivity", "onKeyUp: keyCode=" + keyCode + ", 控制栏状态: " + 
+                          (mControlsVisible ? "可见" : "不可见") + ", mControlsVisible=" + mControlsVisible);
         
         // 如果是在字幕选词模式下，将事件传递给字幕选词控制器
         if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {

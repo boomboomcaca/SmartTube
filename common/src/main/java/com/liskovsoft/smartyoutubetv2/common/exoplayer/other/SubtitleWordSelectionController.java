@@ -717,9 +717,16 @@ public class SubtitleWordSelectionController {
     }
     
     /**
+     * 检查是否正在显示解释
+     */
+    public boolean isShowingDefinition() {
+        return mIsShowingDefinition;
+    }
+    
+    /**
      * 隐藏解释覆盖层
      */
-    private void hideDefinitionOverlay() {
+    public void hideDefinitionOverlay() {
         mTTSService.stopPlaying();
         mUIManager.hideDefinitionOverlay();
         mIsShowingDefinition = false;
@@ -789,6 +796,8 @@ public class SubtitleWordSelectionController {
         mIsWordSelectionMode = false;
         mIsShowingDefinition = false;
         
+        // 仅当PlaybackPresenter可用时才通过它恢复播放
+        // 在StandaloneSmbPlayerActivity中，我们会手动调用play(true)
         if (mPlaybackPresenter != null && mPlaybackPresenter.getView() != null) {
             mPlaybackPresenter.getView().setPlayWhenReady(true);
         }
