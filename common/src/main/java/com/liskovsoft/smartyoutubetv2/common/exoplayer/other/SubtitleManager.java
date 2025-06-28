@@ -125,6 +125,43 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         }
         
         // 初始化自动选词定时器
+        initAutoSelectWordRunnable();
+    }
+    
+    /**
+     * 为SMB播放器提供的简化构造函数
+     * @param subtitleView 字幕视图
+     */
+    public SubtitleManager(SubtitleView subtitleView) {
+        mSubtitleView = subtitleView;
+        mContext = subtitleView.getContext();
+        mPrefs = AppPrefs.instance(mContext);
+        mPlayerData = PlayerData.instance(mContext);
+        mPlayerData.setOnChange(this);
+        configureSubtitleView();
+        
+        // 启用学习中单词高亮功能
+        try {
+            Class<?> subtitlePainterClass = Class.forName("com.google.android.exoplayer2.ui.SubtitlePainter");
+            java.lang.reflect.Field enableLearningWordHighlightField = subtitlePainterClass.getField("ENABLE_LEARNING_WORD_HIGHLIGHT");
+            enableLearningWordHighlightField.setAccessible(true);
+            enableLearningWordHighlightField.set(null, true);
+            Log.d(TAG, "学习中单词高亮功能已启用");
+        } catch (Exception e) {
+            Log.e(TAG, "启用学习中单词高亮功能失败", e);
+        }
+        
+        // SMB播放器中不使用字幕选词控制器
+        mWordSelectionController = null;
+        
+        // 初始化自动选词定时器
+        initAutoSelectWordRunnable();
+    }
+    
+    /**
+     * 初始化自动选词定时器
+     */
+    private void initAutoSelectWordRunnable() {
         mAutoSelectWordRunnable = new Runnable() {
             @Override
             public void run() {

@@ -16,7 +16,13 @@ import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.Timeline;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.ProgressiveMediaSource;
+import com.google.android.exoplayer2.source.hls.HlsMediaSource;
+import com.google.android.exoplayer2.text.SubtitleDecoder;
+import com.google.android.exoplayer2.text.SubtitleDecoderFactory;
 import com.google.android.exoplayer2.ui.PlayerView;
+import com.google.android.exoplayer2.ui.SubtitleView;
+import com.google.android.exoplayer2.Format;
+import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.source.TrackGroupArray;
 import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
@@ -29,6 +35,11 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.StandaloneSmbPlayerView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.SmbDataSourceFactory;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.SmbFile;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.MimeTypes;
+import com.google.android.exoplayer2.source.MergingMediaSource;
+import com.google.android.exoplayer2.source.SingleSampleMediaSource;
 
 public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPlayerView> implements Player.EventListener {
     private static final String TAG = StandaloneSmbPlayerPresenter.class.getSimpleName();
@@ -37,6 +48,7 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
     private SimpleExoPlayer mExoPlayer;
     private Video mCurrentVideo;
     private final GeneralData mGeneralData;
+    private SubtitleManager mSubtitleManager;
 
     private StandaloneSmbPlayerPresenter(Context context) {
         super(context);
@@ -86,6 +98,14 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
 
     public void releasePlayer() {
         if (mExoPlayer != null) {
+            if (mSubtitleManager != null) {
+                if (mExoPlayer.getTextComponent() != null) {
+                    mExoPlayer.getTextComponent().removeTextOutput(mSubtitleManager);
+                }
+                mSubtitleManager.release();
+                mSubtitleManager = null;
+            }
+            
             mExoPlayer.removeListener(this);
             mExoPlayer.release();
             mExoPlayer = null;
@@ -118,9 +138,29 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
         SmbDataSourceFactory dataSourceFactory = new SmbDataSourceFactory(getContext());
         Uri uri = Uri.parse(mCurrentVideo.videoUrl);
         
-        // 创建渐进式媒体源（适用于MP4、MKV等常见格式）
-        MediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory)
-                .createMediaSource(uri);
+        MediaSource mediaSource;
+        
+        // 根据文件扩展名选择合适的MediaSource
+        String fileExtension = getFileExtension(mCurrentVideo.videoUrl);
+        if (fileExtension != null && fileExtension.equals("m3u8")) {
+            // 对于HLS文件使用HlsMediaSource
+            mediaSource = new HlsMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(uri);
+            Log.d(TAG, "使用HLS媒体源播放: " + mCurrentVideo.videoUrl);
+        } else {
+            // 对于TS文件和其他格式使用ProgressiveMediaSource
+            mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(uri);
+            Log.d(TAG, "使用渐进式媒体源播放: " + mCurrentVideo.videoUrl);
+        }
+
+        // 查找并加载外部字幕文件
+        MediaSource subtitleMediaSource = loadExternalSubtitles(dataSourceFactory, uri);
+        if (subtitleMediaSource != null) {
+            // 合并视频和字幕源
+            mediaSource = new MergingMediaSource(mediaSource, subtitleMediaSource);
+            Log.d(TAG, "已合并字幕到媒体源");
+        }
 
         // 通过view接口设置视频表面
         if (getView() != null) {
@@ -128,6 +168,19 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
                 PlayerView playerView = getView().getPlayerView();
                 if (playerView != null) {
                     playerView.setPlayer(mExoPlayer);
+                    
+                    // 初始化字幕管理器
+                    SubtitleView subtitleView = playerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_subtitles);
+                    if (subtitleView != null) {
+                        mSubtitleManager = new SubtitleManager(subtitleView);
+                        mSubtitleManager.setPlayer(mExoPlayer);
+                        if (mExoPlayer.getTextComponent() != null) {
+                            mExoPlayer.getTextComponent().addTextOutput(mSubtitleManager);
+                        }
+                        Log.d(TAG, "字幕管理器初始化成功");
+                    } else {
+                        Log.e(TAG, "找不到字幕视图");
+                    }
                 }
             } catch (Exception e) {
                 Log.e(TAG, "无法设置播放器视图: " + e.getMessage());
@@ -138,6 +191,37 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
         // 准备播放
         mExoPlayer.prepare(mediaSource);
         mExoPlayer.setPlayWhenReady(true);
+    }
+
+    /**
+     * 获取文件扩展名
+     * @param url 文件URL
+     * @return 小写的文件扩展名，如果没有则返回null
+     */
+    private String getFileExtension(String url) {
+        if (url == null) {
+            return null;
+        }
+        
+        // 移除URL参数
+        int queryIndex = url.indexOf('?');
+        if (queryIndex > 0) {
+            url = url.substring(0, queryIndex);
+        }
+        
+        // 获取最后一个斜杠后的部分
+        int slashIndex = url.lastIndexOf('/');
+        if (slashIndex >= 0) {
+            url = url.substring(slashIndex + 1);
+        }
+        
+        // 获取最后一个点后的部分
+        int dotIndex = url.lastIndexOf('.');
+        if (dotIndex > 0) {
+            return url.substring(dotIndex + 1).toLowerCase();
+        }
+        
+        return null;
     }
 
     public void setPlayWhenReady(boolean playWhenReady) {
@@ -250,5 +334,63 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
 
     public void stopProgressUpdates() {
         mHandler.removeCallbacks(mProgressUpdateRunnable);
+    }
+
+    /**
+     * 查找并加载外部字幕文件
+     * @param dataSourceFactory 数据源工厂
+     * @param videoUri 视频URI
+     * @return 字幕媒体源，如果没有找到则返回null
+     */
+    private MediaSource loadExternalSubtitles(SmbDataSourceFactory dataSourceFactory, Uri videoUri) {
+        String videoPath = videoUri.toString();
+        String basePath = videoPath.substring(0, videoPath.lastIndexOf('.'));
+        
+        // 支持的字幕格式和语言后缀
+        String[] subtitleFormats = {".srt", ".vtt"};
+        String[] languageSuffixes = {"", ".zh", ".en", ".zh-CN", ".zh-TW", ".en-US", ".en-GB"};
+        
+        for (String format : subtitleFormats) {
+            for (String lang : languageSuffixes) {
+                String subtitlePath = basePath + lang + format;
+                Uri subtitleUri = Uri.parse(subtitlePath);
+                
+                try {
+                    // 尝试打开字幕文件
+                    SmbFile smbFile = new SmbFile(subtitlePath);
+                    if (smbFile.exists()) {
+                        Log.d(TAG, "找到字幕文件: " + subtitlePath);
+                        
+                        // 根据文件扩展名确定MIME类型
+                        String mimeType = format.equals(".srt") ? 
+                                MimeTypes.APPLICATION_SUBRIP : MimeTypes.TEXT_VTT;
+                        
+                        // 确定语言代码
+                        String languageCode = "und"; // 未定义语言
+                        if (lang.startsWith(".zh")) {
+                            languageCode = "zh";
+                        } else if (lang.startsWith(".en")) {
+                            languageCode = "en";
+                        }
+                        
+                        // 创建字幕格式
+                        Format subtitleFormat = Format.createTextSampleFormat(
+                                /* id= */ null,
+                                mimeType,
+                                C.SELECTION_FLAG_DEFAULT,
+                                languageCode);
+                        
+                        // 创建字幕媒体源
+                        return new SingleSampleMediaSource.Factory(dataSourceFactory)
+                                .createMediaSource(subtitleUri, subtitleFormat, C.TIME_UNSET);
+                    }
+                } catch (Exception e) {
+                    Log.d(TAG, "检查字幕文件失败: " + subtitlePath + ", " + e.getMessage());
+                }
+            }
+        }
+        
+        Log.d(TAG, "未找到匹配的字幕文件");
+        return null;
     }
 } 
