@@ -70,6 +70,18 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
         
         mPresenter.setView(this);
     }
+    
+    @Override
+    public void onResume() {
+        super.onResume();
+        Log.d(TAG, "onResume");
+        
+        // 每次Fragment恢复时重新加载SMB内容
+        // 这确保每次切换到SMB播放器标签时都会刷新显示
+        if (mPresenter != null) {
+            mPresenter.loadRootFolder();
+        }
+    }
 
     @Override
     public void update(VideoGroup videoGroup) {

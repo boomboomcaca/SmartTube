@@ -60,7 +60,7 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
         loadRootFolder();
     }
 
-    private void loadRootFolder() {
+    public void loadRootFolder() {
         String serverUrl = mGeneralData.getSmbServerUrl();
         if (TextUtils.isEmpty(serverUrl)) {
             if (getView() != null) {
