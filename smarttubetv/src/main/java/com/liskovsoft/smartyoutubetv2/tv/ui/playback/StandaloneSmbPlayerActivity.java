@@ -10,6 +10,8 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.ImageView;
+import android.view.Gravity;
 
 import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
@@ -30,6 +32,19 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private static final String TAG = StandaloneSmbPlayerActivity.class.getSimpleName();
     private static final int AUTO_HIDE_DELAY_MS = 5000; // 5秒后自动隐藏UI
     
+    // 定义快进快退常量
+    private static final int[] SEEK_STEPS = {5000, 10000, 30000, 60000, 300000}; // 5秒，10秒，30秒，1分钟，5分钟
+    private static final float SEEK_STEP_PERCENTAGE = 0.02f; // 视频长度的2%
+    private int mCurrentSeekStepIndex = 1; // 默认使用10秒的跳转步长
+    private boolean mSeekStepChanged = false; // 标记用户是否修改了跳转步长
+    
+    // 连续点击相关变量
+    private static final int CONSECUTIVE_CLICK_TIMEOUT_MS = 800; // 连续点击的超时时间
+    private long mLastSeekTime = 0; // 上次跳转的时间
+    private long mAccumulatedSeekMs = 0; // 累积的跳转时间
+    private boolean mIsForwardDirection = true; // 当前跳转方向
+    private int mConsecutiveSeekCount = 0; // 连续点击次数
+    
     private StandaloneSmbPlayerPresenter mPresenter;
     private PlayerView mPlayerView;
     private ProgressBar mProgressBar;
@@ -44,11 +59,40 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private boolean mIsUserSeeking;
     private boolean mControlsVisible = true; // 初始状态控制界面可见
     
+    // 跳转相关UI元素
+    private TextView mSeekHintTextView;
+    private ImageView mSeekIndicatorView;
+    private TextView mSeekIndicatorText;
+    private Handler mSeekIndicatorHandler = new Handler();
+    
     private final Runnable mHideUIRunnable = new Runnable() {
         @Override
         public void run() {
             android.util.Log.d("StandaloneSmbPlayerActivity", "执行自动隐藏控制栏");
             hideControls();
+        }
+    };
+    
+    private final Runnable mResetSeekStepRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (mSeekStepChanged) {
+                mCurrentSeekStepIndex = 1; // 重置为默认值（10秒）
+                mSeekStepChanged = false;
+                updateSeekHintText(""); // 清除提示
+            }
+        }
+    };
+    
+    private final Runnable mSeekIndicatorHideRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (mSeekIndicatorView != null) {
+                mSeekIndicatorView.setVisibility(View.GONE);
+            }
+            if (mSeekIndicatorText != null) {
+                mSeekIndicatorText.setVisibility(View.GONE);
+            }
         }
     };
 
@@ -220,6 +264,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             mErrorTextView.setText(message);
             mErrorTextView.setVisibility(View.VISIBLE);
             mPlayerView.setVisibility(View.GONE);
+            
+            // 确保错误信息显示时，控制界面也可见
+            showControls();
         } else {
             mErrorTextView.setVisibility(View.GONE);
             mPlayerView.setVisibility(View.VISIBLE);
@@ -363,16 +410,40 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        // 记录当前控制栏状态
-        android.util.Log.d("StandaloneSmbPlayerActivity", "onKeyDown: keyCode=" + keyCode + ", 当前控制栏状态: " + 
-                          (mControlsVisible ? "可见" : "不可见") + ", mControlsVisible=" + mControlsVisible);
+        android.util.Log.d(TAG, "onKeyDown: keyCode=" + keyCode);
         
-        // 首先检查是否在字幕选词模式下
+        // 如果是在字幕选词模式下，将事件传递给字幕选词控制器
         if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
             return mWordSelectionController.handleKeyEvent(event);
         }
         
-        // 返回键特殊处理，不自动显示控制界面
+        // 左右方向键处理 - 前进/后退功能 - 这里需要最高优先级处理
+        // 无论控制栏是否显示，左右键都用于视频跳转
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "左键：执行后退操作");
+            seekBackward();
+            // 如果控制栏不可见，则显示控制栏
+            if (!mControlsVisible) {
+                showControls();
+            } else {
+                // 控制栏已显示，则重置自动隐藏计时器
+                scheduleHideControls();
+            }
+            return true;
+        } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "右键：执行前进操作");
+            seekForward();
+            // 如果控制栏不可见，则显示控制栏
+            if (!mControlsVisible) {
+                showControls();
+            } else {
+                // 控制栏已显示，则重置自动隐藏计时器
+                scheduleHideControls();
+            }
+            return true;
+        }
+        
+        // 返回键特殊处理
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             // 多级返回处理逻辑
             // 1. 如果有解释窗口打开，先关闭解释窗口
@@ -456,84 +527,64 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             return true;
         }
         
-        // 左右键特殊处理，不自动显示控制界面
-        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-            // 处理左右键
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                // 1. 如果控制栏可见，执行快退操作
-                // 2. 如果控制栏不可见且有字幕文本，进入选词模式
-                // 3. 如果控制栏不可见且没有字幕，不做任何操作
-                
-                // 检查控制栏是否可见
-                if (mControlsVisible) {
-                    android.util.Log.d("StandaloneSmbPlayerActivity", "左键：控制栏可见，执行快退操作");
-                    seekBackward();
-                    return true;
-                } 
-                
-                // 控制栏不可见，检查是否有字幕文本
-                if (mWordSelectionController != null && hasSubtitleText()) {
-                    android.util.Log.d("StandaloneSmbPlayerActivity", "左键：控制栏不可见，有字幕，进入选词模式(从末尾开始)");
-                    mWordSelectionController.enterWordSelectionMode(false);
-                    return true;
-                }
-                
-                // 既没有控制栏也没有字幕，不做任何操作
-                android.util.Log.d("StandaloneSmbPlayerActivity", "左键：控制栏不可见，无字幕，不执行任何操作");
+        // 上下键调整跳转步长 (只在控制栏可见时有效)
+        if (mControlsVisible) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                increaseSeekStep();
                 return true;
-            } else { // KEYCODE_DPAD_RIGHT
-                // 1. 如果控制栏可见，执行快进操作
-                // 2. 如果控制栏不可见且有字幕文本，进入选词模式
-                // 3. 如果控制栏不可见且没有字幕，不做任何操作
-                
-                // 检查控制栏是否可见
-                if (mControlsVisible) {
-                    android.util.Log.d("StandaloneSmbPlayerActivity", "右键：控制栏可见，执行快进操作");
-                    seekForward();
-                    return true;
-                }
-                
-                // 控制栏不可见，检查是否有字幕文本
-                if (mWordSelectionController != null && hasSubtitleText()) {
-                    android.util.Log.d("StandaloneSmbPlayerActivity", "右键：控制栏不可见，有字幕，进入选词模式(从开头开始)");
-                    mWordSelectionController.enterWordSelectionMode(true);
-                    return true;
-                }
-                
-                // 既没有控制栏也没有字幕，不做任何操作
-                android.util.Log.d("StandaloneSmbPlayerActivity", "右键：控制栏不可见，无字幕，不执行任何操作");
+            } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                decreaseSeekStep();
                 return true;
             }
         }
         
-        // 其他按键，显示控制界面
-        showControls();
+        // 如果控制栏当前不可见，则显示控制栏
+        if (!mControlsVisible) {
+            showControls();
+            return true;
+        }
         
-        // 添加日志输出，追踪长按事件
+        // 记录长按事件
         if (event.isLongPress()) {
             android.util.Log.d("StandaloneSmbPlayerActivity", "检测到长按事件: keyCode=" + keyCode);
         }
         
-        // 处理媒体控制键
+        // 控制栏已显示时的其他按键处理
         switch (keyCode) {
             case KeyEvent.KEYCODE_MEDIA_PLAY:
                 play(true);
+                scheduleHideControls();
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PAUSE:
                 play(false);
+                scheduleHideControls();
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 play(!isPlaying());
+                scheduleHideControls();
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                seekForward();
+                scheduleHideControls();
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_REWIND:
+                seekBackward();
+                scheduleHideControls();
                 return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
                 play(!isPlaying());
+                scheduleHideControls();
                 return true;
             case KeyEvent.KEYCODE_MENU:
                 // 按下菜单键进入选词模式
                 enterWordSelectionMode(true);
+                scheduleHideControls();
                 return true;
         }
+        
+        // 对于其他所有按键，重置自动隐藏计时器
+        scheduleHideControls();
         
         return super.onKeyDown(keyCode, event);
     }
@@ -550,7 +601,49 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        // 不再需要特殊处理长按事件，直接调用父类方法
+        // 左右方向键的处理需要最高优先级，无论控制栏是否显示
+        // 只处理按下事件，避免重复触发
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            int keyCode = event.getKeyCode();
+            
+            // 如果是在字幕选词模式下，不拦截事件
+            if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
+                // 继续正常的事件分发
+                return super.dispatchKeyEvent(event);
+            }
+            
+            // 左右键处理 - 无论控制栏是否显示，都执行前进后退
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                android.util.Log.d("StandaloneSmbPlayerActivity", "dispatchKeyEvent: 左键按下，执行后退操作");
+                seekBackward();
+                // 如果控制栏不可见，则显示控制栏
+                if (!mControlsVisible) {
+                    showControls();
+                } else {
+                    // 控制栏已显示，则重置自动隐藏计时器
+                    scheduleHideControls();
+                }
+                return true;
+            } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                android.util.Log.d("StandaloneSmbPlayerActivity", "dispatchKeyEvent: 右键按下，执行前进操作");
+                seekForward();
+                // 如果控制栏不可见，则显示控制栏
+                if (!mControlsVisible) {
+                    showControls();
+                } else {
+                    // 控制栏已显示，则重置自动隐藏计时器
+                    scheduleHideControls();
+                }
+                return true;
+            }
+            
+            // 对于其他按键，如果控制栏可见，则重置自动隐藏计时器
+            if (mControlsVisible) {
+                scheduleHideControls();
+            }
+        }
+
+        // 继续正常的事件分发
         return super.dispatchKeyEvent(event);
     }
     
@@ -560,124 +653,399 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         return super.onKeyLongPress(keyCode, event);
     }
     
+    /**
+     * 根据视频长度和当前配置来确定最佳的跳转时间
+     * 支持两种模式：
+     * 1. 根据步长索引从预定义时间数组中选择固定时间
+     * 2. 根据视频总长度按百分比计算跳转时间（长视频使用）
+     */
+    private long getSeekStepMs() {
+        long durationMs = mPresenter.getDurationMs();
+        
+        // 确定是使用固定步长还是百分比步长
+        long fixedStepMs = SEEK_STEPS[mCurrentSeekStepIndex];
+        long percentageStepMs = (long)(durationMs * SEEK_STEP_PERCENTAGE);
+        
+        // 如果视频较长（超过30分钟），优先考虑百分比步长
+        if (durationMs > 30 * 60 * 1000 && percentageStepMs > fixedStepMs) {
+            return percentageStepMs;
+        }
+        
+        return fixedStepMs;
+    }
+    
+    /**
+     * 增加跳转步长
+     */
+    private void increaseSeekStep() {
+        mCurrentSeekStepIndex = Math.min(mCurrentSeekStepIndex + 1, SEEK_STEPS.length - 1);
+        mSeekStepChanged = true;
+        updateSeekHintText(formatSeekStepHint());
+        
+        // 3秒后重置为默认步长
+        mHandler.removeCallbacks(mResetSeekStepRunnable);
+        mHandler.postDelayed(mResetSeekStepRunnable, 3000);
+    }
+    
+    /**
+     * 减少跳转步长
+     */
+    private void decreaseSeekStep() {
+        mCurrentSeekStepIndex = Math.max(mCurrentSeekStepIndex - 1, 0);
+        mSeekStepChanged = true;
+        updateSeekHintText(formatSeekStepHint());
+        
+        // 3秒后重置为默认步长
+        mHandler.removeCallbacks(mResetSeekStepRunnable);
+        mHandler.postDelayed(mResetSeekStepRunnable, 3000);
+    }
+    
+    /**
+     * 格式化跳转步长提示文本
+     */
+    private String formatSeekStepHint() {
+        long stepMs = getSeekStepMs();
+        if (stepMs >= 60000) {
+            return "跳转步长: " + (stepMs / 60000) + "分钟";
+        } else {
+            return "跳转步长: " + (stepMs / 1000) + "秒";
+        }
+    }
+    
+    /**
+     * 更新跳转提示文本
+     */
+    private void updateSeekHintText(String text) {
+        // 懒加载方式创建提示文本视图
+        if (mSeekHintTextView == null) {
+            mSeekHintTextView = new TextView(this);
+            mSeekHintTextView.setBackgroundColor(0xAA000000);
+            mSeekHintTextView.setTextColor(0xFFFFFFFF);
+            mSeekHintTextView.setPadding(30, 15, 30, 15);
+            mSeekHintTextView.setTextSize(16);
+            
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT);
+            params.gravity = Gravity.CENTER;
+            
+            FrameLayout rootView = (FrameLayout) mPlayerView.getParent();
+            if (rootView != null) {
+                rootView.addView(mSeekHintTextView, params);
+            }
+        }
+        
+        // 显示或隐藏提示文本
+        if (text == null || text.isEmpty()) {
+            mSeekHintTextView.setVisibility(View.GONE);
+        } else {
+            mSeekHintTextView.setText(text);
+            mSeekHintTextView.setVisibility(View.VISIBLE);
+            
+            // 3秒后自动隐藏
+            mHandler.postDelayed(() -> mSeekHintTextView.setVisibility(View.GONE), 3000);
+        }
+    }
+    
+    /**
+     * 重写后退功能，使其更智能
+     */
     private void seekBackward() {
-        long position = mPresenter.getPositionMs();
-        long newPosition = Math.max(0, position - 10000); // 后退10秒
-        mPresenter.setPositionMs(newPosition);
-        
-        // 立即更新UI显示，而不等待下一次进度更新周期
-        updatePosition(newPosition);
-        
-        MessageHelpers.showMessage(this, "后退10秒");
+        try {
+            long position = mPresenter.getPositionMs();
+            long stepMs = getSeekStepMs();
+            long currentTime = System.currentTimeMillis();
+            boolean isConsecutiveClick = false;
+            
+            // 检查是否是连续点击
+            if (currentTime - mLastSeekTime < CONSECUTIVE_CLICK_TIMEOUT_MS) {
+                // 如果上次是前进，而这次是后退，则重置累积值
+                if (mIsForwardDirection) {
+                    mAccumulatedSeekMs = 0;
+                    mConsecutiveSeekCount = 0;
+                } else {
+                    isConsecutiveClick = true;
+                }
+            } else {
+                // 超过超时时间，重置累积值
+                mAccumulatedSeekMs = 0;
+                mConsecutiveSeekCount = 0;
+            }
+            
+            // 更新方向和时间戳
+            mIsForwardDirection = false;
+            mLastSeekTime = currentTime;
+            mConsecutiveSeekCount++;
+            
+            // 累积跳转时间
+            mAccumulatedSeekMs += stepMs;
+            
+            // 计算新位置
+            long newPosition = Math.max(0, position - stepMs);
+            
+            android.util.Log.d("StandaloneSmbPlayerActivity", "后退: 当前位置=" + position + 
+                              "ms, 步长=" + stepMs + "ms, 新位置=" + newPosition + 
+                              "ms, 连续点击次数=" + mConsecutiveSeekCount +
+                              ", 累积跳转时间=" + mAccumulatedSeekMs + "ms");
+            
+            // 计算实际跳转时间（考虑边界情况）
+            long actualJumpMs = position - newPosition;
+            
+            // 设置新位置
+            mPresenter.setPositionMs(newPosition);
+            
+            // 显示提示信息
+            String message;
+            if (isConsecutiveClick) {
+                // 连续点击显示累积时间
+                if (mAccumulatedSeekMs >= 60000) {
+                    message = "后退 " + (mAccumulatedSeekMs / 60000) + "分钟";
+                } else {
+                    message = "后退 " + (mAccumulatedSeekMs / 1000) + "秒";
+                }
+            } else {
+                if (actualJumpMs >= 60000) {
+                    message = "后退 " + (actualJumpMs / 60000) + "分钟";
+                } else {
+                    message = "后退 " + (actualJumpMs / 1000) + "秒";
+                }
+            }
+            
+            MessageHelpers.showMessage(this, message);
+            
+            // 在画面上显示跳转指示
+            showSeekIndicator(false, isConsecutiveClick ? mAccumulatedSeekMs : actualJumpMs);
+            
+            // 验证跳转是否成功
+            mHandler.postDelayed(() -> {
+                long currentPos = mPresenter.getPositionMs();
+                if (Math.abs(currentPos - newPosition) > 1000) { // 如果差异超过1秒
+                    android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作验证失败: 期望位置=" + 
+                                      newPosition + "ms, 实际位置=" + currentPos + "ms, 差异=" + 
+                                      Math.abs(currentPos - newPosition) + "ms");
+                    
+                    // 再次尝试设置位置
+                    mPresenter.setPositionMs(newPosition);
+                    
+                    // 延迟再次验证
+                    mHandler.postDelayed(() -> {
+                        long verifiedPos = mPresenter.getPositionMs();
+                        // 无论成功与否，都更新UI，但记录日志
+                        if (Math.abs(verifiedPos - newPosition) > 1000) {
+                            android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作二次验证仍然失败");
+                        }
+                        // 更新UI显示
+                        updatePosition(verifiedPos);
+                        updateSeekBarForPosition(verifiedPos);
+                    }, 100);
+                } else {
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "后退操作验证成功: 位置已正确设置");
+                    // 操作成功，更新UI显示
+                    updatePosition(currentPos);
+                    updateSeekBarForPosition(currentPos);
+                }
+            }, 200);
+        } catch (Exception e) {
+            android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作失败", e);
+            MessageHelpers.showMessage(this, "后退操作失败: " + e.getMessage());
+        }
     }
     
+    /**
+     * 重写前进功能，使其更智能
+     */
     private void seekForward() {
-        long position = mPresenter.getPositionMs();
-        long duration = mPresenter.getDurationMs();
-        long newPosition = Math.min(duration, position + 30000); // 前进30秒
-        mPresenter.setPositionMs(newPosition);
-        
-        // 立即更新UI显示，而不等待下一次进度更新周期
-        updatePosition(newPosition);
-        
-        MessageHelpers.showMessage(this, "前进30秒");
+        try {
+            long position = mPresenter.getPositionMs();
+            long duration = mPresenter.getDurationMs();
+            long stepMs = getSeekStepMs();
+            long currentTime = System.currentTimeMillis();
+            boolean isConsecutiveClick = false;
+            
+            // 检查是否是连续点击
+            if (currentTime - mLastSeekTime < CONSECUTIVE_CLICK_TIMEOUT_MS) {
+                // 如果上次是后退，而这次是前进，则重置累积值
+                if (!mIsForwardDirection) {
+                    mAccumulatedSeekMs = 0;
+                    mConsecutiveSeekCount = 0;
+                } else {
+                    isConsecutiveClick = true;
+                }
+            } else {
+                // 超过超时时间，重置累积值
+                mAccumulatedSeekMs = 0;
+                mConsecutiveSeekCount = 0;
+            }
+            
+            // 更新方向和时间戳
+            mIsForwardDirection = true;
+            mLastSeekTime = currentTime;
+            mConsecutiveSeekCount++;
+            
+            // 累积跳转时间
+            mAccumulatedSeekMs += stepMs;
+            
+            // 计算新位置
+            long newPosition = Math.min(duration, position + stepMs);
+            
+            android.util.Log.d("StandaloneSmbPlayerActivity", "前进: 当前位置=" + position + 
+                              "ms, 步长=" + stepMs + "ms, 新位置=" + newPosition + 
+                              "ms, 总时长=" + duration + "ms, 连续点击次数=" + mConsecutiveSeekCount +
+                              ", 累积跳转时间=" + mAccumulatedSeekMs + "ms");
+            
+            // 计算实际跳转时间（考虑边界情况）
+            long actualJumpMs = newPosition - position;
+            
+            // 设置新位置
+            mPresenter.setPositionMs(newPosition);
+            
+            // 显示提示信息
+            String message;
+            if (isConsecutiveClick) {
+                // 连续点击显示累积时间
+                if (mAccumulatedSeekMs >= 60000) {
+                    message = "前进 " + (mAccumulatedSeekMs / 60000) + "分钟";
+                } else {
+                    message = "前进 " + (mAccumulatedSeekMs / 1000) + "秒";
+                }
+            } else {
+                if (actualJumpMs >= 60000) {
+                    message = "前进 " + (actualJumpMs / 60000) + "分钟";
+                } else {
+                    message = "前进 " + (actualJumpMs / 1000) + "秒";
+                }
+            }
+            
+            MessageHelpers.showMessage(this, message);
+            
+            // 在画面上显示跳转指示
+            showSeekIndicator(true, isConsecutiveClick ? mAccumulatedSeekMs : actualJumpMs);
+            
+            // 验证跳转是否成功
+            mHandler.postDelayed(() -> {
+                long currentPos = mPresenter.getPositionMs();
+                if (Math.abs(currentPos - newPosition) > 1000) { // 如果差异超过1秒
+                    android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作验证失败: 期望位置=" + 
+                                      newPosition + "ms, 实际位置=" + currentPos + "ms, 差异=" + 
+                                      Math.abs(currentPos - newPosition) + "ms");
+                    
+                    // 再次尝试设置位置
+                    mPresenter.setPositionMs(newPosition);
+                    
+                    // 延迟再次验证
+                    mHandler.postDelayed(() -> {
+                        long verifiedPos = mPresenter.getPositionMs();
+                        // 无论成功与否，都更新UI，但记录日志
+                        if (Math.abs(verifiedPos - newPosition) > 1000) {
+                            android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作二次验证仍然失败");
+                        }
+                        // 更新UI显示
+                        updatePosition(verifiedPos);
+                        updateSeekBarForPosition(verifiedPos);
+                    }, 100);
+                } else {
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "前进操作验证成功: 位置已正确设置");
+                    // 操作成功，更新UI显示
+                    updatePosition(currentPos);
+                    updateSeekBarForPosition(currentPos);
+                }
+            }, 200);
+        } catch (Exception e) {
+            android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作失败", e);
+            MessageHelpers.showMessage(this, "前进操作失败: " + e.getMessage());
+        }
     }
     
     /**
-     * 显示控制界面
+     * 更新进度条位置（适用于前进/后退操作）
      */
-    private void showControls() {
-        // 先检查当前状态
-        boolean wasVisible = mControlsVisible;
-        
-        // 更新UI
-        mTitleContainer.setVisibility(View.VISIBLE);
-        mControlsContainer.setVisibility(View.VISIBLE);
-        
-        // 更新状态变量
-        mControlsVisible = true;
-        
-        // 记录日志
-        if (!wasVisible) {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "显示控制栏，mControlsVisible从false变为true");
-        } else {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏已经是可见状态，保持mControlsVisible=true");
+    private void updateSeekBarForPosition(long positionMs) {
+        if (mSeekBar != null) {
+            int progress = calculateProgressFromPosition(positionMs);
+            mSeekBar.setProgress(progress);
+        }
+    }
+    
+    /**
+     * 显示跳转指示图标
+     * @param isForward 是否为前进
+     * @param jumpMs 跳转的毫秒数
+     */
+    private void showSeekIndicator(boolean isForward, long jumpMs) {
+        FrameLayout rootView = (FrameLayout) mPlayerView.getParent();
+        if (rootView == null) {
+            return;
         }
         
-        // 重新安排自动隐藏
-        scheduleHideControls();
-    }
-    
-    /**
-     * 隐藏控制界面
-     */
-    private void hideControls() {
-        // 先检查当前状态
-        boolean wasVisible = mControlsVisible;
-        
-        // 更新UI
-        mTitleContainer.setVisibility(View.GONE);
-        mControlsContainer.setVisibility(View.GONE);
-        
-        // 更新状态变量
-        mControlsVisible = false;
-        
-        // 记录日志
-        if (wasVisible) {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "隐藏控制栏，mControlsVisible从true变为false");
-        } else {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏已经是隐藏状态，保持mControlsVisible=false");
+        // 懒加载方式创建指示图标和文本
+        if (mSeekIndicatorView == null) {
+            mSeekIndicatorView = new ImageView(this);
+            FrameLayout.LayoutParams iconParams = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT);
+            iconParams.gravity = Gravity.CENTER;
+            mSeekIndicatorView.setLayoutParams(iconParams);
+            
+            // 使用系统内置的前进/后退图标
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                mSeekIndicatorView.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
+            }
+            rootView.addView(mSeekIndicatorView);
+            
+            mSeekIndicatorText = new TextView(this);
+            mSeekIndicatorText.setPadding(0, 20, 0, 0);
+            mSeekIndicatorText.setTextColor(0xFFFFFFFF);
+            mSeekIndicatorText.setTextSize(16);
+            FrameLayout.LayoutParams textParams = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT);
+            textParams.gravity = Gravity.CENTER;
+            textParams.topMargin = 100;
+            mSeekIndicatorText.setLayoutParams(textParams);
+            rootView.addView(mSeekIndicatorText);
         }
-    }
-    
-    /**
-     * 切换控制界面显示/隐藏状态
-     */
-    private void toggleControlsVisibility() {
-        android.util.Log.d("StandaloneSmbPlayerActivity", "toggleControlsVisibility被调用，当前控制栏状态: " + 
-                          (mControlsVisible ? "可见" : "不可见") + ", mControlsVisible=" + mControlsVisible);
-                          
-        if (mControlsVisible) {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "切换控制栏：当前可见，准备隐藏");
-            hideControls();
-            mHandler.removeCallbacks(mHideUIRunnable);
-        } else {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "切换控制栏：当前不可见，准备显示");
-            showControls();
-        }
-    }
-    
-    /**
-     * 安排自动隐藏控制界面的任务
-     */
-    private void scheduleHideControls() {
-        mHandler.removeCallbacks(mHideUIRunnable);
-        mHandler.postDelayed(mHideUIRunnable, AUTO_HIDE_DELAY_MS);
-        android.util.Log.d("StandaloneSmbPlayerActivity", "安排" + (AUTO_HIDE_DELAY_MS/1000) + "秒后自动隐藏控制栏");
-    }
-    
-    /**
-     * 获取ExoPlayer的PlayerView
-     */
-    public PlayerView getPlayerView() {
-        return mPlayerView;
-    }
-    
-    /**
-     * 初始化字幕选词控制器
-     */
-    public void initWordSelectionController(SubtitleView subtitleView, FrameLayout rootView) {
-        android.util.Log.d("StandaloneSmbPlayerActivity", "开始初始化字幕选词控制器");
         
-        if (subtitleView != null && rootView != null) {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "字幕视图和根视图均有效，创建控制器");
-            mWordSelectionController = new SubtitleWordSelectionController(this, subtitleView, rootView);
-            android.util.Log.d("StandaloneSmbPlayerActivity", "字幕选词控制器初始化完成");
+        // 设置前进/后退图标
+        int iconResId;
+        if (isForward) {
+            iconResId = android.R.drawable.ic_media_ff; // 系统内置前进图标
         } else {
-            android.util.Log.e("StandaloneSmbPlayerActivity", "无法初始化字幕选词控制器: subtitleView=" + 
-                    (subtitleView != null ? "有效" : "null") + ", rootView=" + 
-                    (rootView != null ? "有效" : "null"));
+            iconResId = android.R.drawable.ic_media_rew; // 系统内置后退图标
         }
+        mSeekIndicatorView.setImageResource(iconResId);
+        
+        // 格式化跳转时间文本
+        String jumpText;
+        if (jumpMs >= 60000) {
+            jumpText = (jumpMs / 60000) + "分钟";
+        } else {
+            jumpText = (jumpMs / 1000) + "秒";
+        }
+        mSeekIndicatorText.setText(jumpText);
+        
+        // 显示图标和文本
+        mSeekIndicatorView.setVisibility(View.VISIBLE);
+        mSeekIndicatorText.setVisibility(View.VISIBLE);
+        
+        // 取消之前的隐藏任务
+        mSeekIndicatorHandler.removeCallbacks(mSeekIndicatorHideRunnable);
+        
+        // 1.5秒后隐藏
+        mSeekIndicatorHandler.postDelayed(mSeekIndicatorHideRunnable, 1500);
+    }
+
+    /**
+     * 处理上下键调整跳转步长
+     */
+    private boolean handleUpDownNavigation(int keyCode) {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP && mControlsVisible) {
+            increaseSeekStep();
+            return true;
+        } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && mControlsVisible) {
+            decreaseSeekStep();
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -690,8 +1058,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             return mWordSelectionController.handleKeyEvent(event);
         }
         
-        // 左右键的处理已经在onKeyDown中完成
-        // 不再需要在这里处理快进快退
+        // 对于任何按键释放事件，都重置计时器
+        if (mControlsVisible) {
+            scheduleHideControls();
+        }
         
         return super.onKeyUp(keyCode, event);
     }
@@ -722,5 +1092,92 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 }
             }
         }
+    }
+    
+    /**
+     * 显示控制界面
+     */
+    private void showControls() {
+        // 先检查当前状态
+        boolean wasVisible = mControlsVisible;
+        
+        // 更新UI - 所有控制元素都在底部，一起显示
+        mTitleContainer.setVisibility(View.VISIBLE);
+        mControlsContainer.setVisibility(View.VISIBLE);
+        
+        // 更新状态变量
+        mControlsVisible = true;
+        
+        // 记录日志
+        if (!wasVisible) {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "显示控制栏，mControlsVisible从false变为true");
+        } else {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏已经是可见状态，保持mControlsVisible=true");
+        }
+        
+        // 重新安排自动隐藏
+        scheduleHideControls();
+    }
+    
+    /**
+     * 隐藏控制界面
+     */
+    private void hideControls() {
+        // 先检查当前状态
+        boolean wasVisible = mControlsVisible;
+        
+        // 更新UI - 所有控制元素一起隐藏
+        mTitleContainer.setVisibility(View.GONE);
+        mControlsContainer.setVisibility(View.GONE);
+        
+        // 错误信息如果正在显示，也应该隐藏
+        if (mErrorTextView.getVisibility() == View.VISIBLE) {
+            mErrorTextView.setVisibility(View.GONE);
+        }
+        
+        // 更新状态变量
+        mControlsVisible = false;
+        
+        // 记录日志
+        if (wasVisible) {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "隐藏控制栏，mControlsVisible从true变为false");
+        } else {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏已经是隐藏状态，保持mControlsVisible=false");
+        }
+    }
+    
+    /**
+     * 切换控制界面显示/隐藏状态
+     */
+    private void toggleControlsVisibility() {
+        android.util.Log.d("StandaloneSmbPlayerActivity", "toggleControlsVisibility被调用，当前控制栏状态: " + 
+                          (mControlsVisible ? "可见" : "不可见") + ", mControlsVisible=" + mControlsVisible);
+                          
+        if (mControlsVisible) {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "切换控制栏：当前可见，准备隐藏");
+            hideControls();
+            mHandler.removeCallbacks(mHideUIRunnable);
+        } else {
+            android.util.Log.d("StandaloneSmbPlayerActivity", "切换控制栏：当前不可见，准备显示");
+            showControls();
+            // 显示时已经调用了scheduleHideControls()，不需要重复调用
+        }
+    }
+    
+    /**
+     * 安排自动隐藏控制界面的任务
+     */
+    private void scheduleHideControls() {
+        mHandler.removeCallbacks(mHideUIRunnable);
+        mHandler.postDelayed(mHideUIRunnable, AUTO_HIDE_DELAY_MS);
+        android.util.Log.d("StandaloneSmbPlayerActivity", "安排" + (AUTO_HIDE_DELAY_MS/1000) + "秒后自动隐藏控制栏");
+    }
+    
+    /**
+     * 获取ExoPlayer的PlayerView
+     */
+    @Override
+    public PlayerView getPlayerView() {
+        return mPlayerView;
     }
 } 
