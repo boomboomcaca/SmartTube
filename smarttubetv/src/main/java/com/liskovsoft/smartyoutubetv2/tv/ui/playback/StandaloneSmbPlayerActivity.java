@@ -35,7 +35,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     // 定义快进快退常量
     private static final int[] SEEK_STEPS = {5000, 10000, 30000, 60000, 300000}; // 5秒，10秒，30秒，1分钟，5分钟
     private static final float SEEK_STEP_PERCENTAGE = 0.02f; // 视频长度的2%
-    private int mCurrentSeekStepIndex = 1; // 默认使用10秒的跳转步长
+    private int mCurrentSeekStepIndex = 0; // 默认使用5秒的跳转步长
     private boolean mSeekStepChanged = false; // 标记用户是否修改了跳转步长
     
     // 连续点击相关变量
@@ -50,7 +50,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private static final int ACCELERATION_INTERVAL_MS = 500; // 每500毫秒加速一次
     private boolean mIsLongPress = false; // 是否处于长按状态
     private long mLongPressStartTime = 0; // 长按开始时间
-    private int mLongPressStepIndex = 1; // 长按时的步长索引
+    private int mLongPressStepIndex = 0; // 长按时的步长索引
     private Handler mLongPressHandler = new Handler(); // 长按处理器
     private Runnable mLongPressRunnable; // 长按任务
     
@@ -379,6 +379,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         super.onStop();
         mPresenter.stopProgressUpdates();
         mHandler.removeCallbacks(mHideUIRunnable);
+        cancelLongPress(); // 确保在Activity停止时取消长按任务
     }
 
     @Override
@@ -584,24 +585,40 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         // 左右方向键的处理需要最高优先级，无论控制栏是否显示
-        // 只处理按下事件，避免重复触发
-        if (event.getAction() == KeyEvent.ACTION_DOWN) {
-            int keyCode = event.getKeyCode();
-            
-            // 如果是在字幕选词模式下，不拦截事件
-            if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
-                // 继续正常的事件分发
-                return super.dispatchKeyEvent(event);
+        int keyCode = event.getKeyCode();
+        
+        // 如果是在字幕选词模式下，不拦截事件
+        if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
+            // 继续正常的事件分发
+            return super.dispatchKeyEvent(event);
+        }
+        
+        // 处理按键释放事件
+        if (event.getAction() == KeyEvent.ACTION_UP) {
+            // 处理左右键释放，取消长按状态
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                cancelLongPress();
             }
             
+            // 对于任何按键释放事件，都重置计时器
+            if (mControlsVisible) {
+                scheduleHideControls();
+            }
+        }
+        
+        // 处理按键按下事件
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
             // 左右键处理 - 无论控制栏是否显示，都执行前进后退
             if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 // 检查是否是重复事件（按键长按）
                 if (event.getRepeatCount() == 0) {
-                    // 首次按下，记录时间
+                    // 首次按下，先取消可能存在的之前的长按任务
+                    cancelLongPress();
+                    
+                    // 记录时间
                     mLongPressStartTime = System.currentTimeMillis();
                     mIsLongPress = false;
-                    mLongPressStepIndex = 1; // 重置步长索引
+                    mLongPressStepIndex = 0; // 重置步长索引
                     
                     // 执行正常的前进后退
                     if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
@@ -648,9 +665,6 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                     
                     // 启动长按检测
                     mLongPressHandler.postDelayed(mLongPressRunnable, LONG_PRESS_THRESHOLD_MS);
-                } else {
-                    // 重复事件（按键保持按下），不做额外处理
-                    // 长按逻辑由mLongPressRunnable处理
                 }
                 
                 // 如果控制栏不可见，则显示控制栏
@@ -672,13 +686,6 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             if (!mControlsVisible) {
                 showControls();
                 return true;
-            }
-        } else if (event.getAction() == KeyEvent.ACTION_UP) {
-            int keyCode = event.getKeyCode();
-            
-            // 处理左右键释放，取消长按状态
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                cancelLongPress();
             }
         }
 
@@ -1030,14 +1037,15 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      * 取消长按状态
      */
     private void cancelLongPress() {
-        if (mIsLongPress) {
+        if (mIsLongPress || mLongPressRunnable != null) {
             android.util.Log.d("StandaloneSmbPlayerActivity", "取消长按状态");
             mIsLongPress = false;
-            mLongPressStepIndex = 1; // 重置步长索引
+            mLongPressStepIndex = 0; // 重置步长索引
             
             // 移除长按任务
             if (mLongPressRunnable != null) {
                 mLongPressHandler.removeCallbacks(mLongPressRunnable);
+                mLongPressRunnable = null;
             }
         }
     }
