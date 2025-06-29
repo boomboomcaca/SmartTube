@@ -70,13 +70,7 @@
                 android:textStyle="bold" />
         </LinearLayout>
         
-        <!-- 分隔线 -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#40FFFFFF"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="16dp" />
+        <!-- 删除分隔线 -->
 
         <!-- 控制区域 -->
         <LinearLayout
@@ -129,6 +123,20 @@
                 android:textColor="@android:color/white"
                 android:textSize="14sp"
                 android:text="00:00" />
+                
+                <!-- 添加播放/暂停按钮 -->
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+                    
+                <ImageButton
+                    android:id="@+id/play_pause_button"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/exo_controls_pause"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="播放/暂停" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

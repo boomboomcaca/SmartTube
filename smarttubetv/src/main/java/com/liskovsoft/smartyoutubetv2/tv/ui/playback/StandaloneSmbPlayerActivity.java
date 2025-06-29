@@ -11,6 +11,7 @@ import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.ImageView;
+import android.widget.ImageButton;
 import android.view.Gravity;
 
 import androidx.annotation.Nullable;
@@ -48,9 +49,11 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     // 长按加速相关变量
     private static final int LONG_PRESS_THRESHOLD_MS = 1000; // 长按阈值，1秒
     private static final int ACCELERATION_INTERVAL_MS = 500; // 每500毫秒加速一次
+    private static final int SAME_SPEED_REPEAT_COUNT = 10; // 长按时以相同速度重复的次数
     private boolean mIsLongPress = false; // 是否处于长按状态
     private long mLongPressStartTime = 0; // 长按开始时间
     private int mLongPressStepIndex = 0; // 长按时的步长索引
+    private int mLongPressRepeatCount = 0; // 长按时以相同速度重复的计数
     private Handler mLongPressHandler = new Handler(); // 长按处理器
     private Runnable mLongPressRunnable; // 长按任务
     
@@ -64,6 +67,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private TextView mPositionView;
     private TextView mDurationView;
     private SeekBar mSeekBar;
+    private ImageButton mPlayPauseButton;
     private Handler mHandler;
     private boolean mIsUserSeeking;
     private boolean mControlsVisible = true; // 初始状态控制界面可见
@@ -141,6 +145,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             mPresenter.openVideo(video);
             mPresenter.startProgressUpdates();
             
+            // 初始化播放按钮状态
+            updatePlayPauseButton(true);
+            
             // 启动自动隐藏UI的定时器
             scheduleHideControls();
         } else {
@@ -178,6 +185,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         mPositionView = findViewById(R.id.position_view);
         mDurationView = findViewById(R.id.duration_view);
         mSeekBar = findViewById(R.id.seek_bar);
+        mPlayPauseButton = findViewById(R.id.play_pause_button);
     }
     
     private void initListeners() {
@@ -220,6 +228,14 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         // 点击播放器区域显示/隐藏控制界面
         mPlayerView.setOnClickListener(v -> {
             toggleControlsVisibility();
+        });
+        
+        // 播放/暂停按钮点击事件
+        mPlayPauseButton.setOnClickListener(v -> {
+            boolean isPlaying = isPlaying();
+            play(!isPlaying);
+            updatePlayPauseButton(!isPlaying);
+            scheduleHideControls();
         });
     }
     
@@ -318,11 +334,15 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                         mPresenter.setPlayWhenReady(true);
                         android.util.Log.d("StandaloneSmbPlayerActivity", "已设置播放器状态为: 播放");
                         
+                        // 更新播放/暂停按钮状态
+                        updatePlayPauseButton(true);
+                        
                         // 添加验证检查确认播放状态已设置
                         mHandler.postDelayed(() -> {
                             if (!isPlaying() && mPresenter != null) {
                                 android.util.Log.d("StandaloneSmbPlayerActivity", "验证检查：播放状态未生效，尝试forcePlay()");
                                 mPresenter.forcePlay();
+                                updatePlayPauseButton(true);
                             } else {
                                 android.util.Log.d("StandaloneSmbPlayerActivity", "验证检查：播放状态已正确设置");
                             }
@@ -331,17 +351,20 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                         // 播放器未准备好，使用强制播放
                         android.util.Log.d("StandaloneSmbPlayerActivity", "播放器未准备好，尝试强制播放");
                         mPresenter.forcePlay();
+                        updatePlayPauseButton(true);
                         
                         // 添加延迟检查，确保播放状态正确设置
                         mHandler.postDelayed(() -> {
                             if (!isPlaying() && mPresenter != null && mPresenter.hasExoPlayer()) {
                                 android.util.Log.d("StandaloneSmbPlayerActivity", "延迟检查：播放未恢复，再次尝试");
                                 mPresenter.forcePlay();
+                                updatePlayPauseButton(true);
                                 
                                 // 最后尝试直接访问播放器
                                 if (mPlayerView != null && mPlayerView.getPlayer() != null) {
                                     android.util.Log.d("StandaloneSmbPlayerActivity", "最终尝试：直接设置PlayerView的播放状态");
                                     mPlayerView.getPlayer().setPlayWhenReady(true);
+                                    updatePlayPauseButton(true);
                                 }
                             }
                         }, 250);
@@ -349,6 +372,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 } else {
                     // 暂停播放
                     mPresenter.setPlayWhenReady(false);
+                    updatePlayPauseButton(false);
                     android.util.Log.d("StandaloneSmbPlayerActivity", "已设置播放器状态为: 暂停");
                 }
             } catch (Exception e) {
@@ -358,6 +382,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                     if (play && mPlayerView != null && mPlayerView.getPlayer() != null) {
                         android.util.Log.d("StandaloneSmbPlayerActivity", "尝试恢复方案：直接设置PlayerView的播放状态");
                         mPlayerView.getPlayer().setPlayWhenReady(true);
+                        updatePlayPauseButton(true);
                     }
                 } catch (Exception ex) {
                     android.util.Log.e("StandaloneSmbPlayerActivity", "恢复方案也失败", ex);
@@ -449,7 +474,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             // 1. 如果有解释窗口打开，先关闭解释窗口
             // 2. 如果在选词模式，退出选词模式
             // 3. 如果控制栏可见，隐藏控制栏
-            // 4. 以上都不符合时，才退出视频播放
+            // 4. 以上都不符合时，直接退出视频播放
             
             // 检查是否有解释窗口
             if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode() && 
@@ -521,8 +546,8 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 return true;
             }
             
-            // 都不符合时，退出视频播放
-            android.util.Log.d("StandaloneSmbPlayerActivity", "返回键：所有条件都不满足，退出视频播放");
+            // 直接退出视频播放
+            android.util.Log.d("StandaloneSmbPlayerActivity", "返回键：退出视频播放");
             finish();
             return true;
         }
@@ -677,12 +702,17 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 return true;
             }
             
+            // 返回键特殊处理 - 直接传递给onKeyDown处理
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                return super.dispatchKeyEvent(event);
+            }
+            
             // 对于其他按键，如果控制栏可见，则重置自动隐藏计时器
             if (mControlsVisible) {
                 scheduleHideControls();
             }
             
-            // 如果控制栏当前不可见，则显示控制栏
+            // 如果控制栏当前不可见，则显示控制栏（除了返回键）
             if (!mControlsVisible) {
                 showControls();
                 return true;
@@ -706,18 +736,8 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      * 2. 根据视频总长度按百分比计算跳转时间（长视频使用）
      */
     private long getSeekStepMs() {
-        long durationMs = mPresenter.getDurationMs();
-        
-        // 确定是使用固定步长还是百分比步长
-        long fixedStepMs = SEEK_STEPS[mCurrentSeekStepIndex];
-        long percentageStepMs = (long)(durationMs * SEEK_STEP_PERCENTAGE);
-        
-        // 如果视频较长（超过30分钟），优先考虑百分比步长
-        if (durationMs > 30 * 60 * 1000 && percentageStepMs > fixedStepMs) {
-            return percentageStepMs;
-        }
-        
-        return fixedStepMs;
+        // 直接返回固定步长，不再考虑百分比步长
+        return SEEK_STEPS[mCurrentSeekStepIndex];
     }
     
     /**
@@ -1179,6 +1199,18 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     public void initWordSelectionController(SubtitleView subtitleView, FrameLayout rootView) {
         if (subtitleView != null && rootView != null) {
             mWordSelectionController = new SubtitleWordSelectionController(this, subtitleView, rootView);
+        }
+    }
+
+    /**
+     * 更新播放/暂停按钮状态
+     * @param isPlaying 是否正在播放
+     */
+    private void updatePlayPauseButton(boolean isPlaying) {
+        if (mPlayPauseButton != null) {
+            mPlayPauseButton.setImageResource(isPlaying ? 
+                com.google.android.exoplayer2.ui.R.drawable.exo_controls_pause : 
+                com.google.android.exoplayer2.ui.R.drawable.exo_controls_play);
         }
     }
 } 
