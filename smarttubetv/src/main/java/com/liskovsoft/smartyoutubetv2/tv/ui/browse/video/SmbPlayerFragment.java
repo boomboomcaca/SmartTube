@@ -7,6 +7,7 @@ import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.leanback.widget.OnItemViewClickedListener;
 import androidx.leanback.widget.OnItemViewSelectedListener;
@@ -21,9 +22,11 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
 
 public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerView {
     private static final String TAG = SmbPlayerFragment.class.getSimpleName();
+    private static boolean sNeedsReload = true; // Static flag to track if content should be reloaded
     private SmbPlayerPresenter mPresenter;
     private VideoGroup mCurrentGroup;
     private ProgressBar mProgressBar;
+    private boolean mIsViewCreated = false;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -33,9 +36,11 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
     }
 
     @Override
-    public void onViewCreated(View view, Bundle savedInstanceState) {
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         Log.d(TAG, "onViewCreated");
+        
+        mIsViewCreated = true;
         
         setOnItemViewClickedListener(new ItemViewClickedListener());
         
@@ -76,10 +81,34 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
         super.onResume();
         Log.d(TAG, "onResume");
         
-        // 每次Fragment恢复时重新加载SMB内容
-        // 这确保每次切换到SMB播放器标签时都会刷新显示
-        if (mPresenter != null) {
+        // 在onResume时检查是否需要重新加载SMB内容
+        if (mPresenter != null && mIsViewCreated && sNeedsReload) {
+            Log.d(TAG, "onResume: Loading SMB content due to reload flag");
             mPresenter.loadRootFolder();
+            sNeedsReload = false;
+        }
+    }
+
+    @Override
+    public void onViewStateRestored(@Nullable Bundle savedInstanceState) {
+        super.onViewStateRestored(savedInstanceState);
+        Log.d(TAG, "onViewStateRestored");
+    }
+    
+    @Override
+    public void setUserVisibleHint(boolean isVisibleToUser) {
+        super.setUserVisibleHint(isVisibleToUser);
+        Log.d(TAG, "setUserVisibleHint: " + isVisibleToUser);
+        
+        // 当Fragment可见状态改变为可见时重新加载内容
+        if (isVisibleToUser && mPresenter != null && mIsViewCreated) {
+            Log.d(TAG, "setUserVisibleHint: Loading SMB content");
+            mPresenter.loadRootFolder();
+            sNeedsReload = false; // Reset flag after loading
+        } else if (!isVisibleToUser) {
+            // 当切换到其他标签时，设置标志以便下次返回时重新加载
+            Log.d(TAG, "setUserVisibleHint: Setting reload flag for next visibility");
+            sNeedsReload = true;
         }
     }
 
@@ -139,6 +168,14 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
         if (mProgressBar != null) {
             mProgressBar.setVisibility(show ? View.VISIBLE : View.GONE);
         }
+    }
+
+    /**
+     * 静态方法，用于在从外部请求刷新时设置重新加载标志
+     */
+    public static void markForReload() {
+        Log.d(TAG, "markForReload: Setting reload flag");
+        sNeedsReload = true;
     }
 
     private final class ItemViewClickedListener implements OnItemViewClickedListener {

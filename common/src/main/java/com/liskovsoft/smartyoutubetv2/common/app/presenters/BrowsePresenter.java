@@ -458,11 +458,35 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
 
     @Override
     public void onSectionFocused(int sectionId) {
-        saveSelectedItems(); // save previous state
+        Log.d(TAG, "onSectionFocused: " + sectionId);
+
         mCurrentSection = findSectionById(sectionId);
-        mCurrentVideo = null; // fast scroll through the sections (fix empty selected item)
-        updateCurrentSection();
-        restoreSelectedItems(); // Don't place anywhere else
+
+        if (mCurrentSection == null) {
+            Log.e(TAG, "onSectionFocused: section not found for id: " + sectionId);
+            return;
+        }
+
+        // Special handling for SMB Player section - always reload when focused
+        if (mCurrentSection.getId() == MediaGroup.TYPE_SMB_PLAYER) {
+            // Mark the SMB Player fragment for reload
+            try {
+                Class<?> smbPlayerFragmentClass = Class.forName("com.liskovsoft.smartyoutubetv2.tv.ui.browse.video.SmbPlayerFragment");
+                java.lang.reflect.Method markForReloadMethod = smbPlayerFragmentClass.getDeclaredMethod("markForReload");
+                markForReloadMethod.invoke(null);
+                Log.d(TAG, "onSectionFocused: Marked SMB Player for reload");
+            } catch (Exception e) {
+                Log.e(TAG, "onSectionFocused: Failed to mark SMB Player for reload", e);
+            }
+            
+            SmbPlayerPresenter smbPresenter = SmbPlayerPresenter.instance(getContext());
+            if (smbPresenter != null) {
+                Log.d(TAG, "onSectionFocused: Reloading SMB Player content");
+                smbPresenter.loadRootFolder();
+            }
+        }
+
+        updateSection(mCurrentSection);
     }
 
     @Override
@@ -618,6 +642,16 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
             updateSettingsGrid(section, mSettingsGridMapping.get(section.getId()));
         } else if (section.getId() == MediaGroup.TYPE_SMB_PLAYER) {
             // 特殊处理SMB播放器部分
+            // Mark the SMB Player fragment for reload
+            try {
+                Class<?> smbPlayerFragmentClass = Class.forName("com.liskovsoft.smartyoutubetv2.tv.ui.browse.video.SmbPlayerFragment");
+                java.lang.reflect.Method markForReloadMethod = smbPlayerFragmentClass.getDeclaredMethod("markForReload");
+                markForReloadMethod.invoke(null);
+                Log.d(TAG, "updateSection: Marked SMB Player for reload");
+            } catch (Exception e) {
+                Log.e(TAG, "updateSection: Failed to mark SMB Player for reload", e);
+            }
+            
             SmbPlayerPresenter.instance(getContext()).openView();
         } else if (mRowMapping.containsKey(section.getId())) {
             updateVideoRows(section, mRowMapping.get(section.getId()), true);
