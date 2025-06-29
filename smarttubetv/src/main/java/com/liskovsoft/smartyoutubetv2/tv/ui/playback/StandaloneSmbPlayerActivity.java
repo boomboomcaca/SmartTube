@@ -633,73 +633,79 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         
         // 处理按键按下事件
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
-            // 左右键处理 - 无论控制栏是否显示，都执行前进后退
+            // 左右键处理 - 根据不同状态有不同行为
             if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                // 检查是否是重复事件（按键长按）
-                if (event.getRepeatCount() == 0) {
-                    // 首次按下，先取消可能存在的之前的长按任务
-                    cancelLongPress();
-                    
-                    // 记录时间
-                    mLongPressStartTime = System.currentTimeMillis();
-                    mIsLongPress = false;
-                    mLongPressStepIndex = 0; // 重置步长索引
-                    
-                    // 执行正常的前进后退
-                    if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                        android.util.Log.d("StandaloneSmbPlayerActivity", "dispatchKeyEvent: 左键按下，执行后退操作");
-                        seekBackward();
-                    } else { // KEYCODE_DPAD_RIGHT
-                        android.util.Log.d("StandaloneSmbPlayerActivity", "dispatchKeyEvent: 右键按下，执行前进操作");
-                        seekForward();
+                // 如果控制栏可见，执行前进/后退功能
+                if (mControlsVisible) {
+                    // 检查是否是重复事件（按键长按）
+                    if (event.getRepeatCount() == 0) {
+                        // 首次按下，先取消可能存在的之前的长按任务
+                        cancelLongPress();
+                        
+                        // 记录时间
+                        mLongPressStartTime = System.currentTimeMillis();
+                        mIsLongPress = false;
+                        mLongPressStepIndex = 0; // 重置步长索引
+                        
+                        // 执行正常的前进后退
+                        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                            android.util.Log.d("StandaloneSmbPlayerActivity", "dispatchKeyEvent: 左键按下，执行后退操作");
+                            seekBackward();
+                        } else { // KEYCODE_DPAD_RIGHT
+                            android.util.Log.d("StandaloneSmbPlayerActivity", "dispatchKeyEvent: 右键按下，执行前进操作");
+                            seekForward();
+                        }
+                        
+                        // 创建长按任务，检测长按状态
+                        final boolean isForward = (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT);
+                        mLongPressRunnable = new Runnable() {
+                            @Override
+                            public void run() {
+                                long pressDuration = System.currentTimeMillis() - mLongPressStartTime;
+                                
+                                // 检查是否达到长按阈值
+                                if (pressDuration >= LONG_PRESS_THRESHOLD_MS) {
+                                    if (!mIsLongPress) {
+                                        mIsLongPress = true;
+                                        android.util.Log.d("StandaloneSmbPlayerActivity", "检测到长按: " + (isForward ? "前进" : "后退"));
+                                    }
+                                    
+                                    // 根据长按时间调整步长索引
+                                    int elapsedIntervals = (int) (pressDuration / ACCELERATION_INTERVAL_MS);
+                                    mLongPressStepIndex = Math.min(elapsedIntervals, SEEK_STEPS.length - 1);
+                                    
+                                    // 获取当前步长
+                                    long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
+                                    
+                                    // 执行加速的前进后退
+                                    if (isForward) {
+                                        seekForwardWithStep(currentStepMs);
+                                    } else {
+                                        seekBackwardWithStep(currentStepMs);
+                                    }
+                                    
+                                    // 继续检测长按状态
+                                    mLongPressHandler.postDelayed(this, ACCELERATION_INTERVAL_MS);
+                                }
+                            }
+                        };
+                        
+                        // 启动长按检测
+                        mLongPressHandler.postDelayed(mLongPressRunnable, LONG_PRESS_THRESHOLD_MS);
                     }
                     
-                    // 创建长按任务，检测长按状态
-                    final boolean isForward = (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT);
-                    mLongPressRunnable = new Runnable() {
-                        @Override
-                        public void run() {
-                            long pressDuration = System.currentTimeMillis() - mLongPressStartTime;
-                            
-                            // 检查是否达到长按阈值
-                            if (pressDuration >= LONG_PRESS_THRESHOLD_MS) {
-                                if (!mIsLongPress) {
-                                    mIsLongPress = true;
-                                    android.util.Log.d("StandaloneSmbPlayerActivity", "检测到长按: " + (isForward ? "前进" : "后退"));
-                                }
-                                
-                                // 根据长按时间调整步长索引
-                                int elapsedIntervals = (int) (pressDuration / ACCELERATION_INTERVAL_MS);
-                                mLongPressStepIndex = Math.min(elapsedIntervals, SEEK_STEPS.length - 1);
-                                
-                                // 获取当前步长
-                                long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
-                                
-                                // 执行加速的前进后退
-                                if (isForward) {
-                                    seekForwardWithStep(currentStepMs);
-                                } else {
-                                    seekBackwardWithStep(currentStepMs);
-                                }
-                                
-                                // 继续检测长按状态
-                                mLongPressHandler.postDelayed(this, ACCELERATION_INTERVAL_MS);
-                            }
-                        }
-                    };
-                    
-                    // 启动长按检测
-                    mLongPressHandler.postDelayed(mLongPressRunnable, LONG_PRESS_THRESHOLD_MS);
-                }
-                
-                // 如果控制栏不可见，则显示控制栏
-                if (!mControlsVisible) {
-                    showControls();
-                } else {
-                    // 控制栏已显示，则重置自动隐藏计时器
+                    // 重置自动隐藏计时器
                     scheduleHideControls();
+                    return true;
+                } 
+                // 如果控制栏不可见且有字幕，则进入选词模式
+                else if (hasSubtitleText()) {
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏不可见且有字幕，进入选词模式");
+                    enterWordSelectionMode(true);
+                    return true;
                 }
-                return true;
+                // 其他情况，不做特殊处理，也不显示控制栏
+                return super.dispatchKeyEvent(event);
             }
             
             // 返回键特殊处理 - 直接传递给onKeyDown处理
@@ -707,16 +713,26 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 return super.dispatchKeyEvent(event);
             }
             
+            // 上下按键和OK按键特殊处理 - 显示控制栏
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN || 
+                keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+                
+                android.util.Log.d("StandaloneSmbPlayerActivity", "上下/OK按键按下，显示控制栏");
+                
+                // 如果控制栏不可见，则显示控制栏
+                if (!mControlsVisible) {
+                    showControls();
+                    return true;
+                }
+            }
+            
             // 对于其他按键，如果控制栏可见，则重置自动隐藏计时器
             if (mControlsVisible) {
                 scheduleHideControls();
             }
             
-            // 如果控制栏当前不可见，则显示控制栏（除了返回键）
-            if (!mControlsVisible) {
-                showControls();
-                return true;
-            }
+            // 不再自动显示控制栏
+            // 让事件继续传递
         }
 
         // 继续正常的事件分发
