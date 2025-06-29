@@ -48,8 +48,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     
     // 长按加速相关变量
     private static final int LONG_PRESS_THRESHOLD_MS = 1000; // 长按阈值，1秒
-    private static final int ACCELERATION_INTERVAL_MS = 100; // 每100毫秒执行一次
-    private static final int ACCELERATION_AFTER_MS = 5000; // 5秒后开始加速步进
+    private static final int STEP_CHANGE_INTERVAL_MS = 5000; // 每5秒切换一次步进级别
     private boolean mIsLongPress = false; // 是否处于长按状态
     private long mLongPressStartTime = 0; // 长按开始时间
     private int mLongPressStepIndex = 0; // 长按时的步长索引
@@ -110,42 +109,8 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             }
         }
         
-        // 初始化长按任务
-        mLongPressRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (System.currentTimeMillis() - mLongPressStartTime > LONG_PRESS_THRESHOLD_MS) {
-                    mIsLongPress = true;
-                    
-                    // 计算经过的时间
-                    long elapsedTime = System.currentTimeMillis() - mLongPressStartTime;
-                    
-                    // 当长按超过5秒后才开始递增步进
-                    if (elapsedTime > ACCELERATION_AFTER_MS) {
-                        int stepIncrease = (int) ((elapsedTime - ACCELERATION_AFTER_MS) / ACCELERATION_INTERVAL_MS);
-                        mLongPressStepIndex = Math.min(stepIncrease, SEEK_STEPS.length - 1);
-                        android.util.Log.d("StandaloneSmbPlayerActivity", "长按超过5秒，增加步进: " + mLongPressStepIndex);
-                    } else {
-                        // 5秒内保持默认步进
-                        mLongPressStepIndex = mCurrentSeekStepIndex;
-                        android.util.Log.d("StandaloneSmbPlayerActivity", "长按未超过5秒，使用默认步进: " + mCurrentSeekStepIndex);
-                    }
-                    
-                    // 获取当前步长
-                    long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
-                    
-                    // 执行加速的前进后退
-                    if (mIsForwardDirection) {
-                        seekForwardWithStep(currentStepMs);
-                    } else {
-                        seekBackwardWithStep(currentStepMs);
-                    }
-                    
-                    // 继续检测长按状态
-                    mLongPressHandler.postDelayed(this, ACCELERATION_INTERVAL_MS);
-                }
-            }
-        };
+        // 长按任务将在dispatchKeyEvent中动态创建
+        mLongPressRunnable = null;
         
         mPresenter.setView(this);
 
@@ -671,38 +636,27 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                         mLongPressRunnable = new Runnable() {
                             @Override
                             public void run() {
-                                long pressDuration = System.currentTimeMillis() - mLongPressStartTime;
-                                
-                                // 检查是否达到长按阈值
-                                if (pressDuration >= LONG_PRESS_THRESHOLD_MS) {
-                                    if (!mIsLongPress) {
-                                        mIsLongPress = true;
-                                        android.util.Log.d("StandaloneSmbPlayerActivity", "检测到长按: " + (isForward ? "前进" : "后退"));
-                                    }
+                                // 只在达到长按阈值时触发一次
+                                if (System.currentTimeMillis() - mLongPressStartTime > LONG_PRESS_THRESHOLD_MS) {
+                                    mIsLongPress = true;
+                                    mIsForwardDirection = isForward; // 设置当前方向
                                     
-                                    // 当长按超过5秒后才开始递增步进
-                                    if (pressDuration > ACCELERATION_AFTER_MS) {
-                                        int stepIncrease = (int) ((pressDuration - ACCELERATION_AFTER_MS) / ACCELERATION_INTERVAL_MS);
-                                        mLongPressStepIndex = Math.min(stepIncrease, SEEK_STEPS.length - 1);
-                                        android.util.Log.d("StandaloneSmbPlayerActivity", "长按超过5秒，增加步进: " + mLongPressStepIndex);
-                                    } else {
-                                        // 5秒内保持默认步进
-                                        mLongPressStepIndex = mCurrentSeekStepIndex;
-                                        android.util.Log.d("StandaloneSmbPlayerActivity", "长按未超过5秒，使用默认步进: " + mCurrentSeekStepIndex);
-                                    }
+                                    android.util.Log.d("StandaloneSmbPlayerActivity", "长按触发: " + 
+                                                    (isForward ? "前进" : "后退"));
+                                    
+                                    // 使用默认步进开始
+                                    mLongPressStepIndex = mCurrentSeekStepIndex;
                                     
                                     // 获取当前步长
                                     long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
                                     
-                                    // 执行加速的前进后退
+                                    // 执行首次前进后退操作
+                                    // 后续操作会在操作完成后的回调中自动连续执行
                                     if (isForward) {
                                         seekForwardWithStep(currentStepMs);
                                     } else {
                                         seekBackwardWithStep(currentStepMs);
                                     }
-                                    
-                                    // 继续检测长按状态
-                                    mLongPressHandler.postDelayed(this, ACCELERATION_INTERVAL_MS);
                                 }
                             }
                         };
@@ -927,6 +881,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                     }, 100);
                 } else {
                     android.util.Log.d("StandaloneSmbPlayerActivity", "前进操作验证成功: 位置已正确设置");
+                    
                     // 操作成功，更新UI显示
                     updatePosition(currentPos);
                     updateSeekBarForPosition(currentPos);
@@ -1090,16 +1045,22 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      * 取消长按状态
      */
     private void cancelLongPress() {
-        if (mIsLongPress || mLongPressRunnable != null) {
+        if (mIsLongPress) {
             android.util.Log.d("StandaloneSmbPlayerActivity", "取消长按状态");
             mIsLongPress = false;
             mLongPressStepIndex = 0; // 重置步长索引
             
-            // 移除长按任务
-            if (mLongPressRunnable != null) {
-                mLongPressHandler.removeCallbacks(mLongPressRunnable);
-                mLongPressRunnable = null;
-            }
+            // 移除长按处理器中的任何挂起任务
+            mLongPressHandler.removeCallbacksAndMessages(null);
+            
+            // 注意：由于现在使用回调机制，
+            // 设置mIsLongPress为false后
+            // 在下一次seek操作完成后，将不会继续执行
+        }
+        
+        // 即使不在长按状态，也移除所有挂起的任务
+        if (mLongPressRunnable != null) {
+            mLongPressHandler.removeCallbacks(mLongPressRunnable);
         }
     }
     
@@ -1130,7 +1091,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             // 验证跳转是否成功
             mHandler.postDelayed(() -> {
                 long currentPos = mPresenter.getPositionMs();
-                if (Math.abs(currentPos - newPosition) > 1000) { // 如果差异超过1秒
+                boolean isSuccessful = Math.abs(currentPos - newPosition) <= 1000; // 如果差异在1秒内视为成功
+                
+                if (!isSuccessful) {
                     android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作验证失败: 期望位置=" + 
                                       newPosition + "ms, 实际位置=" + currentPos + "ms, 差异=" + 
                                       Math.abs(currentPos - newPosition) + "ms");
@@ -1144,16 +1107,68 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                         // 无论成功与否，都更新UI，但记录日志
                         if (Math.abs(verifiedPos - newPosition) > 1000) {
                             android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作二次验证仍然失败");
+                        } else {
+                            android.util.Log.d("StandaloneSmbPlayerActivity", "后退操作二次验证成功");
                         }
+                        
                         // 更新UI显示
                         updatePosition(verifiedPos);
                         updateSeekBarForPosition(verifiedPos);
+                        
+                        // 如果仍处于长按状态，继续执行后退操作
+                        if (mIsLongPress) {
+                            // 计算当前经过的时间
+                            long elapsedTime = System.currentTimeMillis() - mLongPressStartTime;
+                            
+                            // 计算应该使用的步进索引
+                            // 每5秒切换到下一个步进级别
+                            int stepIndex = Math.min((int)(elapsedTime / STEP_CHANGE_INTERVAL_MS), SEEK_STEPS.length - 1);
+                            
+                            // 如果步进索引变化了，记录日志
+                            if (stepIndex != mLongPressStepIndex) {
+                                android.util.Log.d("StandaloneSmbPlayerActivity", "步进级别变化: " + 
+                                                 mLongPressStepIndex + " -> " + stepIndex + 
+                                                 ", 经过时间: " + (elapsedTime / 1000) + "秒");
+                                mLongPressStepIndex = stepIndex;
+                            }
+                            
+                            // 获取当前步长
+                            long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
+                            
+                            // 继续后退操作
+                            seekBackwardWithStep(currentStepMs);
+                        }
                     }, 100);
                 } else {
                     android.util.Log.d("StandaloneSmbPlayerActivity", "后退操作验证成功: 位置已正确设置");
+                    
                     // 操作成功，更新UI显示
                     updatePosition(currentPos);
                     updateSeekBarForPosition(currentPos);
+                    
+                    // 如果仍处于长按状态，继续执行后退操作
+                    if (mIsLongPress) {
+                        // 计算当前经过的时间
+                        long elapsedTime = System.currentTimeMillis() - mLongPressStartTime;
+                        
+                        // 计算应该使用的步进索引
+                        // 每5秒切换到下一个步进级别
+                        int stepIndex = Math.min((int)(elapsedTime / STEP_CHANGE_INTERVAL_MS), SEEK_STEPS.length - 1);
+                        
+                        // 如果步进索引变化了，记录日志
+                        if (stepIndex != mLongPressStepIndex) {
+                            android.util.Log.d("StandaloneSmbPlayerActivity", "步进级别变化: " + 
+                                             mLongPressStepIndex + " -> " + stepIndex + 
+                                             ", 经过时间: " + (elapsedTime / 1000) + "秒");
+                            mLongPressStepIndex = stepIndex;
+                        }
+                        
+                        // 获取当前步长
+                        long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
+                        
+                        // 继续后退操作
+                        seekBackwardWithStep(currentStepMs);
+                    }
                 }
             }, 200);
         } catch (Exception e) {
@@ -1191,7 +1206,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             // 验证跳转是否成功
             mHandler.postDelayed(() -> {
                 long currentPos = mPresenter.getPositionMs();
-                if (Math.abs(currentPos - newPosition) > 1000) { // 如果差异超过1秒
+                boolean isSuccessful = Math.abs(currentPos - newPosition) <= 1000; // 如果差异在1秒内视为成功
+                
+                if (!isSuccessful) {
                     android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作验证失败: 期望位置=" + 
                                       newPosition + "ms, 实际位置=" + currentPos + "ms, 差异=" + 
                                       Math.abs(currentPos - newPosition) + "ms");
@@ -1205,16 +1222,68 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                         // 无论成功与否，都更新UI，但记录日志
                         if (Math.abs(verifiedPos - newPosition) > 1000) {
                             android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作二次验证仍然失败");
+                        } else {
+                            android.util.Log.d("StandaloneSmbPlayerActivity", "前进操作二次验证成功");
                         }
+                        
                         // 更新UI显示
                         updatePosition(verifiedPos);
                         updateSeekBarForPosition(verifiedPos);
+                        
+                        // 如果仍处于长按状态，继续执行前进操作
+                        if (mIsLongPress) {
+                            // 计算当前经过的时间
+                            long elapsedTime = System.currentTimeMillis() - mLongPressStartTime;
+                            
+                            // 计算应该使用的步进索引
+                            // 每5秒切换到下一个步进级别
+                            int stepIndex = Math.min((int)(elapsedTime / STEP_CHANGE_INTERVAL_MS), SEEK_STEPS.length - 1);
+                            
+                            // 如果步进索引变化了，记录日志
+                            if (stepIndex != mLongPressStepIndex) {
+                                android.util.Log.d("StandaloneSmbPlayerActivity", "步进级别变化: " + 
+                                                 mLongPressStepIndex + " -> " + stepIndex + 
+                                                 ", 经过时间: " + (elapsedTime / 1000) + "秒");
+                                mLongPressStepIndex = stepIndex;
+                            }
+                            
+                            // 获取当前步长
+                            long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
+                            
+                            // 继续前进操作
+                            seekForwardWithStep(currentStepMs);
+                        }
                     }, 100);
                 } else {
                     android.util.Log.d("StandaloneSmbPlayerActivity", "前进操作验证成功: 位置已正确设置");
+                    
                     // 操作成功，更新UI显示
                     updatePosition(currentPos);
                     updateSeekBarForPosition(currentPos);
+                    
+                    // 如果仍处于长按状态，继续执行前进操作
+                    if (mIsLongPress) {
+                        // 计算当前经过的时间
+                        long elapsedTime = System.currentTimeMillis() - mLongPressStartTime;
+                        
+                        // 计算应该使用的步进索引
+                        // 每5秒切换到下一个步进级别
+                        int stepIndex = Math.min((int)(elapsedTime / STEP_CHANGE_INTERVAL_MS), SEEK_STEPS.length - 1);
+                        
+                        // 如果步进索引变化了，记录日志
+                        if (stepIndex != mLongPressStepIndex) {
+                            android.util.Log.d("StandaloneSmbPlayerActivity", "步进级别变化: " + 
+                                             mLongPressStepIndex + " -> " + stepIndex + 
+                                             ", 经过时间: " + (elapsedTime / 1000) + "秒");
+                            mLongPressStepIndex = stepIndex;
+                        }
+                        
+                        // 获取当前步长
+                        long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
+                        
+                        // 继续前进操作
+                        seekForwardWithStep(currentStepMs);
+                    }
                 }
             }, 200);
         } catch (Exception e) {
