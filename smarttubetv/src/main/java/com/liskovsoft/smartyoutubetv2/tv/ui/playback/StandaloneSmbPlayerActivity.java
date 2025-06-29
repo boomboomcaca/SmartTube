@@ -48,8 +48,8 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     
     // 长按加速相关变量
     private static final int LONG_PRESS_THRESHOLD_MS = 1000; // 长按阈值，1秒
-    private static final int ACCELERATION_INTERVAL_MS = 500; // 每500毫秒加速一次
-    private static final int SAME_SPEED_REPEAT_COUNT = 10; // 长按时以相同速度重复的次数
+    private static final int ACCELERATION_INTERVAL_MS = 100; // 每100毫秒执行一次
+    private static final int ACCELERATION_AFTER_MS = 5000; // 5秒后开始加速步进
     private boolean mIsLongPress = false; // 是否处于长按状态
     private long mLongPressStartTime = 0; // 长按开始时间
     private int mLongPressStepIndex = 0; // 长按时的步长索引
@@ -117,12 +117,19 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 if (System.currentTimeMillis() - mLongPressStartTime > LONG_PRESS_THRESHOLD_MS) {
                     mIsLongPress = true;
                     
-                    // 计算经过的时间，每500毫秒加速一次
+                    // 计算经过的时间
                     long elapsedTime = System.currentTimeMillis() - mLongPressStartTime;
-                    int stepIncrease = (int) (elapsedTime / ACCELERATION_INTERVAL_MS);
                     
-                    // 限制最大步长索引
-                    mLongPressStepIndex = Math.min(stepIncrease, SEEK_STEPS.length - 1);
+                    // 当长按超过5秒后才开始递增步进
+                    if (elapsedTime > ACCELERATION_AFTER_MS) {
+                        int stepIncrease = (int) ((elapsedTime - ACCELERATION_AFTER_MS) / ACCELERATION_INTERVAL_MS);
+                        mLongPressStepIndex = Math.min(stepIncrease, SEEK_STEPS.length - 1);
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "长按超过5秒，增加步进: " + mLongPressStepIndex);
+                    } else {
+                        // 5秒内保持默认步进
+                        mLongPressStepIndex = mCurrentSeekStepIndex;
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "长按未超过5秒，使用默认步进: " + mCurrentSeekStepIndex);
+                    }
                     
                     // 获取当前步长
                     long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
@@ -133,6 +140,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                     } else {
                         seekBackwardWithStep(currentStepMs);
                     }
+                    
+                    // 继续检测长按状态
+                    mLongPressHandler.postDelayed(this, ACCELERATION_INTERVAL_MS);
                 }
             }
         };
@@ -670,9 +680,16 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                                         android.util.Log.d("StandaloneSmbPlayerActivity", "检测到长按: " + (isForward ? "前进" : "后退"));
                                     }
                                     
-                                    // 根据长按时间调整步长索引
-                                    int elapsedIntervals = (int) (pressDuration / ACCELERATION_INTERVAL_MS);
-                                    mLongPressStepIndex = Math.min(elapsedIntervals, SEEK_STEPS.length - 1);
+                                    // 当长按超过5秒后才开始递增步进
+                                    if (pressDuration > ACCELERATION_AFTER_MS) {
+                                        int stepIncrease = (int) ((pressDuration - ACCELERATION_AFTER_MS) / ACCELERATION_INTERVAL_MS);
+                                        mLongPressStepIndex = Math.min(stepIncrease, SEEK_STEPS.length - 1);
+                                        android.util.Log.d("StandaloneSmbPlayerActivity", "长按超过5秒，增加步进: " + mLongPressStepIndex);
+                                    } else {
+                                        // 5秒内保持默认步进
+                                        mLongPressStepIndex = mCurrentSeekStepIndex;
+                                        android.util.Log.d("StandaloneSmbPlayerActivity", "长按未超过5秒，使用默认步进: " + mCurrentSeekStepIndex);
+                                    }
                                     
                                     // 获取当前步长
                                     long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
