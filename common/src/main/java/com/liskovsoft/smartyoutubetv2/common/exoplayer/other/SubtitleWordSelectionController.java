@@ -291,7 +291,14 @@ public class SubtitleWordSelectionController {
             case KeyEvent.KEYCODE_DPAD_LEFT:
                 if (isControlsVisible) return false;
                 if (mIsShowingDefinition) hideDefinitionOverlay();
-                selectPreviousWord();
+                
+                // 如果当前是第一个词，按左键时直接跳到最后一个词
+                if (mCurrentWordIndex == 0 && mWords.length > 0) {
+                    mCurrentWordIndex = mWords.length - 1;
+                    highlightCurrentWord();
+                } else {
+                    selectPreviousWord();
+                }
                 return true;
                 
             case KeyEvent.KEYCODE_DPAD_RIGHT:

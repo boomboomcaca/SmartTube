@@ -672,7 +672,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 // 如果控制栏不可见且有字幕，则进入选词模式
                 else if (hasSubtitleText()) {
                     android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏不可见且有字幕，进入选词模式");
-                    enterWordSelectionMode(true);
+                    // 根据按键方向决定从哪个词开始选择
+                    boolean fromStart = (keyCode != KeyEvent.KEYCODE_DPAD_LEFT); // 左键从最后一个词开始，右键从第一个词开始
+                    enterWordSelectionMode(fromStart);
                     return true;
                 }
                 // 其他情况，不做特殊处理，也不显示控制栏
