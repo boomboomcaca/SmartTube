@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.AsyncTask;
 import android.text.TextUtils;
+import android.app.AlertDialog;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
 import com.liskovsoft.sharedutils.helpers.FileHelpers;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
@@ -20,6 +21,8 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 
 import jcifs.CIFSContext;
@@ -61,6 +64,7 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
     }
 
     public void loadRootFolder() {
+        try {
         String serverUrl = mGeneralData.getSmbServerUrl();
         if (TextUtils.isEmpty(serverUrl)) {
             if (getView() != null) {
@@ -89,6 +93,13 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
 
         // 加载根文件夹
         loadFolder(mCurrentPath);
+        } catch (Exception e) {
+            Log.e(TAG, "Error loading root folder", e);
+            if (getView() != null) {
+                getView().showLoading(false);
+                getView().showError("加载SMB服务器失败: " + e.getMessage());
+            }
+        }
     }
 
     public void loadFolder(String path) {
@@ -300,8 +311,29 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                 }
 
                 SmbFile smbFile = new SmbFile(path, authenticatedContext);
+                
+                // 验证SMB文件是否存在且是目录
+                if (!smbFile.exists()) {
+                    Log.e(TAG, "SMB path does not exist: " + path);
+                    mErrorMessage = "SMB路径不存在: " + path;
+                    return null;
+                }
+                
+                if (!smbFile.isDirectory()) {
+                    Log.e(TAG, "SMB path is not a directory: " + path);
+                    mErrorMessage = "SMB路径不是目录: " + path;
+                    return null;
+                }
+                
                 SmbFile[] files = smbFile.listFiles();
-                Log.d(TAG, "Found " + (files != null ? files.length : 0) + " files in directory");
+                
+                if (files == null) {
+                    Log.e(TAG, "Failed to list files in directory: " + path);
+                    mErrorMessage = "无法列出目录中的文件: " + path;
+                    return null;
+                }
+                
+                Log.d(TAG, "Found " + files.length + " files in directory");
 
                 // 添加返回上一级目录选项（如果不是根目录）
                 if (!path.equals(mRootPath)) {
@@ -332,6 +364,8 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                             video.cardImageUrl = "drawable://" + R.drawable.ic_folder;
                             video.videoUrl = file.getURL().toString();
                             video.isFolder = true;
+                            // 设置文件夹的修改日期
+                            video.setFileDate(new Date(file.getLastModified()));
                             videos.add(video);
                             folderCount++;
                         }
@@ -358,6 +392,10 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                                     video.cardImageUrl = "drawable://" + R.drawable.ic_file_video;
                                     video.videoUrl = file.getURL().toString();
                                     video.isFolder = false;
+                                    // 设置文件的修改日期
+                                    video.setFileDate(new Date(file.getLastModified()));
+                                    // 设置文件大小
+                                    video.setFileSize(file.length());
                                     videos.add(video);
                                     videoCount++;
                                 }
@@ -365,6 +403,10 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                         }
                     }
                     Log.d(TAG, "Added " + videoCount + " video files");
+                    
+                    // 根据排序设置对文件和文件夹进行排序
+                    sortVideos(videos);
+                    
                 } catch (Exception e) {
                     Log.e(TAG, "Error processing files: " + e.getMessage());
                 }
@@ -396,6 +438,126 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
 
             return null;
         }
+        
+        /**
+         * 根据用户设置的排序类型和顺序对视频列表进行排序
+         * @param videos 要排序的视频列表
+         */
+        private void sortVideos(List<Video> videos) {
+            if (videos == null || videos.isEmpty()) {
+                return;
+            }
+            
+            // 第一个项目可能是返回上一级的项目，需要单独处理
+            Video backItem = null;
+            if (!videos.isEmpty() && "..".equals(videos.get(0).title)) {
+                backItem = videos.remove(0);
+            }
+            
+            // 分离文件夹和文件
+            List<Video> folders = new ArrayList<>();
+            List<Video> files = new ArrayList<>();
+            
+            for (Video video : videos) {
+                if (video.isFolder) {
+                    folders.add(video);
+                } else {
+                    files.add(video);
+                }
+            }
+            
+            // 根据排序类型和顺序对文件夹排序
+            int sortType = mGeneralData.getSmbSortType();
+            int sortOrder = mGeneralData.getSmbSortOrder();
+            
+            // 对文件夹排序（文件夹只能按名称或修改日期排序）
+            if (sortType == GeneralData.SMB_SORT_BY_NAME) {
+                Collections.sort(folders, (v1, v2) -> {
+                    if (sortOrder == GeneralData.SMB_SORT_ORDER_ASC) {
+                        return v1.title.compareToIgnoreCase(v2.title);
+                    } else {
+                        return v2.title.compareToIgnoreCase(v1.title);
+                    }
+                });
+            } else if (sortType == GeneralData.SMB_SORT_BY_DATE) {
+                Collections.sort(folders, (v1, v2) -> {
+                    if (v1.getFileDate() == null) return sortOrder == GeneralData.SMB_SORT_ORDER_ASC ? -1 : 1;
+                    if (v2.getFileDate() == null) return sortOrder == GeneralData.SMB_SORT_ORDER_ASC ? 1 : -1;
+                    
+                    if (sortOrder == GeneralData.SMB_SORT_ORDER_ASC) {
+                        return v1.getFileDate().compareTo(v2.getFileDate());
+                    } else {
+                        return v2.getFileDate().compareTo(v1.getFileDate());
+                    }
+                });
+            }
+            
+            // 对文件排序
+            switch (sortType) {
+                case GeneralData.SMB_SORT_BY_NAME:
+                    Collections.sort(files, (v1, v2) -> {
+                        if (sortOrder == GeneralData.SMB_SORT_ORDER_ASC) {
+                            return v1.title.compareToIgnoreCase(v2.title);
+                        } else {
+                            return v2.title.compareToIgnoreCase(v1.title);
+                        }
+                    });
+                    break;
+                    
+                case GeneralData.SMB_SORT_BY_DATE:
+                    Collections.sort(files, (v1, v2) -> {
+                        if (v1.getFileDate() == null) return sortOrder == GeneralData.SMB_SORT_ORDER_ASC ? -1 : 1;
+                        if (v2.getFileDate() == null) return sortOrder == GeneralData.SMB_SORT_ORDER_ASC ? 1 : -1;
+                        
+                        if (sortOrder == GeneralData.SMB_SORT_ORDER_ASC) {
+                            return v1.getFileDate().compareTo(v2.getFileDate());
+                        } else {
+                            return v2.getFileDate().compareTo(v1.getFileDate());
+                        }
+                    });
+                    break;
+                    
+                case GeneralData.SMB_SORT_BY_PLAY_TIME:
+                    Collections.sort(files, (v1, v2) -> {
+                        if (v1.getPlayTime() == null && v2.getPlayTime() == null) {
+                            // 如果都没有播放时间，则按名称排序
+                            return sortOrder == GeneralData.SMB_SORT_ORDER_ASC ? 
+                                   v1.title.compareToIgnoreCase(v2.title) : 
+                                   v2.title.compareToIgnoreCase(v1.title);
+                        }
+                        
+                        if (v1.getPlayTime() == null) return sortOrder == GeneralData.SMB_SORT_ORDER_ASC ? -1 : 1;
+                        if (v2.getPlayTime() == null) return sortOrder == GeneralData.SMB_SORT_ORDER_ASC ? 1 : -1;
+                        
+                        if (sortOrder == GeneralData.SMB_SORT_ORDER_ASC) {
+                            return v1.getPlayTime().compareTo(v2.getPlayTime());
+                        } else {
+                            return v2.getPlayTime().compareTo(v1.getPlayTime());
+                        }
+                    });
+                    break;
+                    
+                case GeneralData.SMB_SORT_BY_SIZE:
+                    Collections.sort(files, (v1, v2) -> {
+                        if (sortOrder == GeneralData.SMB_SORT_ORDER_ASC) {
+                            return Long.compare(v1.getFileSize(), v2.getFileSize());
+                        } else {
+                            return Long.compare(v2.getFileSize(), v1.getFileSize());
+                        }
+                    });
+                    break;
+            }
+            
+            // 清空并重新组装列表：返回上一级 -> 文件夹 -> 文件
+            videos.clear();
+            if (backItem != null) {
+                videos.add(backItem);
+            }
+            videos.addAll(folders);
+            videos.addAll(files);
+            
+            Log.d(TAG, "Sorted videos list with type: " + sortType + ", order: " + sortOrder);
+        }
 
         @Override
         protected void onPostExecute(VideoGroup videoGroup) {
@@ -425,6 +587,9 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                 loadFolder(item.videoUrl);
             }
         } else {
+            // 更新播放时间
+            item.updatePlayTime();
+            
             // 播放视频 - 使用独立播放器
             try {
                 Intent intent = new Intent();
@@ -439,5 +604,73 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
                 PlaybackPresenter.instance(getContext()).openVideo(item);
             }
         }
+    }
+    
+    /**
+     * 显示排序选项对话框
+     */
+    public void showSortDialog() {
+        if (getContext() == null) {
+            return;
+        }
+        
+        // 创建排序选项
+        String[] sortOptions = new String[] {
+            getContext().getString(R.string.sort_by_name),
+            getContext().getString(R.string.sort_by_modified_date),
+            getContext().getString(R.string.sort_by_play_time),
+            getContext().getString(R.string.sort_by_size)
+        };
+        
+        // 创建排序顺序选项
+        String[] orderOptions = new String[] {
+            getContext().getString(R.string.sort_order_asc),
+            getContext().getString(R.string.sort_order_desc)
+        };
+        
+        // 获取当前排序设置
+        int currentSortType = mGeneralData.getSmbSortType();
+        int currentSortOrder = mGeneralData.getSmbSortOrder();
+        
+        // 创建对话框构建器
+        AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
+        builder.setTitle(R.string.sort_options);
+        
+        // 设置排序类型选项
+        builder.setSingleChoiceItems(sortOptions, currentSortType, (dialog, which) -> {
+            if (currentSortType != which) {
+                mGeneralData.setSmbSortType(which);
+                // 重新加载当前文件夹以应用新的排序
+                if (mCurrentPath != null) {
+                    loadFolder(mCurrentPath);
+                }
+            }
+            dialog.dismiss();
+        });
+        
+        // 添加排序顺序按钮
+        builder.setPositiveButton(orderOptions[0], (dialog, which) -> {
+            if (currentSortOrder != GeneralData.SMB_SORT_ORDER_ASC) {
+                mGeneralData.setSmbSortOrder(GeneralData.SMB_SORT_ORDER_ASC);
+                // 重新加载当前文件夹以应用新的排序
+                if (mCurrentPath != null) {
+                    loadFolder(mCurrentPath);
+                }
+            }
+        });
+        
+        builder.setNegativeButton(orderOptions[1], (dialog, which) -> {
+            if (currentSortOrder != GeneralData.SMB_SORT_ORDER_DESC) {
+                mGeneralData.setSmbSortOrder(GeneralData.SMB_SORT_ORDER_DESC);
+                // 重新加载当前文件夹以应用新的排序
+                if (mCurrentPath != null) {
+                    loadFolder(mCurrentPath);
+                }
+            }
+        });
+        
+        // 显示对话框
+        AlertDialog dialog = builder.create();
+        dialog.show();
     }
 } 

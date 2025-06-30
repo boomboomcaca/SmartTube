@@ -659,4 +659,11 @@
   <string name="smb_username">用户名</string>
   <string name="smb_password">密码</string>
   <string name="not_set">未设置</string>
+  <string name="sort_options">排序选项</string>
+  <string name="sort_by_name">按名称排序</string>
+  <string name="sort_by_modified_date">按修改日期排序</string>
+  <string name="sort_by_play_time">按播放时间排序</string>
+  <string name="sort_by_size">按文件大小排序</string>
+  <string name="sort_order_asc">升序</string>
+  <string name="sort_order_desc">降序</string>
 </resources>

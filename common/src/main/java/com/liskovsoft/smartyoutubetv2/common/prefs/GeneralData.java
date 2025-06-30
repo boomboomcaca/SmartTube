@@ -25,6 +25,17 @@ public class GeneralData implements ProfileChangeListener {
     public static final int HISTORY_AUTO = 0;
     public static final int HISTORY_ENABLED = 1;
     public static final int HISTORY_DISABLED = 2;
+    
+    // SMB排序类型常量
+    public static final int SMB_SORT_BY_NAME = 0;
+    public static final int SMB_SORT_BY_DATE = 1;
+    public static final int SMB_SORT_BY_PLAY_TIME = 2;
+    public static final int SMB_SORT_BY_SIZE = 3;
+    
+    // SMB排序顺序常量
+    public static final int SMB_SORT_ORDER_ASC = 0;
+    public static final int SMB_SORT_ORDER_DESC = 1;
+    
     @SuppressLint("StaticFieldLeak")
     private static GeneralData sInstance;
     private final Context mContext;
@@ -88,6 +99,8 @@ public class GeneralData implements ProfileChangeListener {
     private boolean mIsDeviceSpecificBackupEnabled;
     private boolean mIsAutoBackupEnabled;
     private List<Video> mOldPinnedItems;
+    private int mSmbSortType = SMB_SORT_BY_NAME; // 默认按名称排序
+    private int mSmbSortOrder = SMB_SORT_ORDER_ASC; // 默认升序排序
     private final Runnable mPersistStateInt = this::persistStateInt;
 
     private GeneralData(Context context) {
@@ -762,6 +775,8 @@ public class GeneralData implements ProfileChangeListener {
         mIsRemapPageDownToSpeedEnabled = Helpers.parseBoolean(split, 67, false);
         mSearchExitShortcut = Helpers.parseInt(split, 68, EXIT_SINGLE_BACK);
         mIsSmbPlayerEnabled = Helpers.parseBoolean(split, 69, false);
+        mSmbSortType = Helpers.parseInt(split, 70, SMB_SORT_BY_NAME);
+        mSmbSortOrder = Helpers.parseInt(split, 71, SMB_SORT_ORDER_ASC);
     }
 
     private void persistState() {
@@ -792,7 +807,7 @@ public class GeneralData implements ProfileChangeListener {
                 mIsRemapDpadUpToVolumeEnabled, mIsRemapDpadLeftToVolumeEnabled, mIsRemapNextToFastForwardEnabled, mIsHideWatchedFromNotificationsEnabled,
                 mChangelog, mPlayerExitShortcut, null, mIsFullscreenModeEnabled, null,
                 mRememberPinnedPosition, mSelectedItems, mIsFirstUseTooltipEnabled, mIsDeviceSpecificBackupEnabled, mIsAutoBackupEnabled,
-                mIsRemapPageDownToSpeedEnabled, mSearchExitShortcut, mIsSmbPlayerEnabled));
+                mIsRemapPageDownToSpeedEnabled, mSearchExitShortcut, mIsSmbPlayerEnabled, mSmbSortType, mSmbSortOrder));
     }
 
     @Override
@@ -846,5 +861,39 @@ public class GeneralData implements ProfileChangeListener {
     
     public void enableSmbServerConfig(boolean enable) {
         // 不清除已填写的内容，只是启用或禁用
+    }
+
+    /**
+     * 获取SMB文件排序类型
+     * @return 排序类型常量
+     */
+    public int getSmbSortType() {
+        return mSmbSortType;
+    }
+
+    /**
+     * 设置SMB文件排序类型
+     * @param sortType 排序类型常量
+     */
+    public void setSmbSortType(int sortType) {
+        mSmbSortType = sortType;
+        persistState();
+    }
+
+    /**
+     * 获取SMB文件排序顺序
+     * @return 排序顺序常量
+     */
+    public int getSmbSortOrder() {
+        return mSmbSortOrder;
+    }
+
+    /**
+     * 设置SMB文件排序顺序
+     * @param sortOrder 排序顺序常量
+     */
+    public void setSmbSortOrder(int sortOrder) {
+        mSmbSortOrder = sortOrder;
+        persistState();
     }
 }

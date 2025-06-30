@@ -21,6 +21,8 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.SmbPlayerPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SmbPlayerView;
 import com.liskovsoft.smartyoutubetv2.tv.presenter.base.OnItemLongPressedListener;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import android.view.KeyEvent;
+import com.liskovsoft.smartyoutubetv2.tv.ui.common.LeanbackActivity;
 
 public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerView {
     private static final String TAG = SmbPlayerFragment.class.getSimpleName();
@@ -29,12 +31,25 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
     private VideoGroup mCurrentGroup;
     private ProgressBar mProgressBar;
     private boolean mIsViewCreated = false;
+    private KeyEventHandler mKeyEventHandler;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
+        // 在调用super.onCreate之前初始化GridPresenter
+        // 防止GridFragment.onViewCreated中出现空指针异常
+        androidx.leanback.widget.VerticalGridPresenter gridPresenter = new com.liskovsoft.smartyoutubetv2.tv.presenter.CustomVerticalGridPresenter();
+        gridPresenter.setNumberOfColumns(
+                com.liskovsoft.smartyoutubetv2.tv.ui.browse.video.GridFragmentHelper.getMaxColsNum(getContext(), R.dimen.card_width, 
+                com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.instance(getContext()).getVideoGridScale())
+        );
+        setGridPresenter(gridPresenter);
+        
         super.onCreate(savedInstanceState);
         Log.d(TAG, "onCreate");
         mPresenter = SmbPlayerPresenter.instance(getContext());
+        
+        // 创建按键事件处理器
+        mKeyEventHandler = new KeyEventHandler();
     }
 
     @Override
@@ -80,6 +95,11 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
         Log.d(TAG, "onActivityCreated");
         
         mPresenter.setView(this);
+        
+        // 为Activity设置按键监听器
+        if (getActivity() != null && getActivity() instanceof LeanbackActivity) {
+            ((LeanbackActivity) getActivity()).setOnKeyDownListener(mKeyEventHandler);
+        }
     }
     
     @Override
@@ -253,9 +273,29 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
         public void onItemClicked(Presenter.ViewHolder itemViewHolder, Object item,
                                   RowPresenter.ViewHolder rowViewHolder, Row row) {
             if (item instanceof Video) {
-                Log.d(TAG, "onItemClicked: " + ((Video) item).title);
                 mPresenter.onVideoItemClicked((Video) item);
             }
+        }
+    }
+    
+    /**
+     * 处理按键事件的内部类
+     */
+    public class KeyEventHandler implements LeanbackActivity.OnKeyDownListener {
+        /**
+         * 处理按键事件，支持MENU键打开排序对话框
+         */
+        @Override
+        public boolean onKeyDown(int keyCode, KeyEvent event) {
+            if (keyCode == KeyEvent.KEYCODE_MENU && isVisible() && getUserVisibleHint()) {
+                Log.d(TAG, "MENU key pressed, showing sort dialog");
+                if (mPresenter != null) {
+                    mPresenter.showSortDialog();
+                    return true;
+                }
+            }
+            
+            return false;
         }
     }
 } 

@@ -26,6 +26,7 @@ import com.liskovsoft.youtubeapi.common.helpers.YouTubeHelper;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -101,6 +102,11 @@ public final class Video {
     private long durationMs = -1;
     private WeakReference<VideoGroup> group; // Memory leak fix. Used to get next page when scrolling.
     public List<NotificationState> notificationStates;
+    
+    // 添加文件属性
+    private Date date; // 文件修改日期
+    private Date playTime; // 最后播放时间
+    private long fileSize; // 文件大小，单位字节
 
     public Video() {
        // NOP
@@ -914,5 +920,52 @@ public final class Video {
         String title = hasChannel ? getAuthor() : isUserPlaylistItem ? null : getTitle();
         String subtitle = isUserPlaylistItem ? getGroupTitle() : hasChannel || isChannel() ? null : getAuthor();
         return title != null && subtitle != null ? String.format("%s - %s", title, subtitle) : String.format("%s", title != null ? title : subtitle);
+    }
+
+    /**
+     * 设置文件修改日期
+     * @param date 文件日期
+     */
+    public void setFileDate(Date date) {
+        this.date = date;
+    }
+
+    /**
+     * 获取文件修改日期
+     * @return 文件日期
+     */
+    public Date getFileDate() {
+        return date;
+    }
+
+    /**
+     * 设置文件大小
+     * @param size 文件大小（字节）
+     */
+    public void setFileSize(long size) {
+        this.fileSize = size;
+    }
+
+    /**
+     * 获取文件大小
+     * @return 文件大小（字节）
+     */
+    public long getFileSize() {
+        return fileSize;
+    }
+
+    /**
+     * 更新播放时间为当前时间
+     */
+    public void updatePlayTime() {
+        this.playTime = new Date();
+    }
+
+    /**
+     * 获取最后播放时间
+     * @return 最后播放时间
+     */
+    public Date getPlayTime() {
+        return playTime;
     }
 }

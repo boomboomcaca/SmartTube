@@ -20,12 +20,20 @@ import com.liskovsoft.smartyoutubetv2.tv.ui.search.tags.SearchTagsActivity;
 /**
  * This parent class contains common methods that run in every activity such as search.
  */
-public abstract class LeanbackActivity extends MotherActivity {
+public abstract class LeanbackActivity extends MotherActivity implements KeyEvent.Callback {
     private static final String TAG = LeanbackActivity.class.getSimpleName();
     private UriBackgroundManager mBackgroundManager;
     private ModeSyncManager mModeSyncManager;
     private DoubleBackManager2 mDoubleBackManager;
     private GlobalKeyTranslator mGlobalKeyTranslator;
+    private OnKeyDownListener mOnKeyDownListener;
+    
+    /**
+     * 自定义按键监听接口
+     */
+    public interface OnKeyDownListener {
+        boolean onKeyDown(int keyCode, KeyEvent event);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,7 +63,22 @@ public abstract class LeanbackActivity extends MotherActivity {
         Log.d(TAG, event);
 
         KeyEvent newEvent = mGlobalKeyTranslator.translate(event);
+        
+        // 处理按键事件
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (mOnKeyDownListener != null && mOnKeyDownListener.onKeyDown(event.getKeyCode(), event)) {
+                return true;
+            }
+        }
+        
         return super.dispatchKeyEvent(newEvent);
+    }
+    
+    /**
+     * 设置按键监听器
+     */
+    public void setOnKeyDownListener(OnKeyDownListener listener) {
+        mOnKeyDownListener = listener;
     }
 
     public UriBackgroundManager getBackgroundManager() {

@@ -733,4 +733,12 @@
     <string name="confirm_delete_file">是否确定删除文件\"%s\"? 匹配的字幕文件也将被删除。</string>
     <string name="file_deleted">文件已删除</string>
     <string name="file_delete_error">删除文件失败: %s</string>
+    <!-- 添加排序相关字符串资源 -->
+    <string name="sort_options">Sort Options</string>
+    <string name="sort_by_name">Sort by Name</string>
+    <string name="sort_by_modified_date">Sort by Modified Date</string>
+    <string name="sort_by_play_time">Sort by Play Time</string>
+    <string name="sort_by_size">Sort by Size</string>
+    <string name="sort_order_asc">Ascending Order</string>
+    <string name="sort_order_desc">Descending Order</string>
 </resources>
