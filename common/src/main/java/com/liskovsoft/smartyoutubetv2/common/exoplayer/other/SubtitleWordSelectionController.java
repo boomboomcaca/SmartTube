@@ -297,7 +297,7 @@ public class SubtitleWordSelectionController {
                     mCurrentWordIndex = mWords.length - 1;
                     highlightCurrentWord();
                 } else {
-                    selectPreviousWord();
+                selectPreviousWord();
                 }
                 return true;
                 
