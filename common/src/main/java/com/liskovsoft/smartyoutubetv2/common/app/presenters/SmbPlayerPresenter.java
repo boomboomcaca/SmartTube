@@ -110,6 +110,168 @@ public class SmbPlayerPresenter extends BasePresenter<SmbPlayerView> {
         loadFolder(path);
     }
 
+    /**
+     * 删除SMB文件及其匹配的字幕文件
+     * @param video 要删除的视频
+     */
+    public void deleteFile(Video video) {
+        if (video == null || TextUtils.isEmpty(video.videoUrl)) {
+            MessageHelpers.showMessage(getContext(), R.string.file_delete_error, "Invalid file");
+            return;
+        }
+        
+        try {
+            // 验证文件路径格式
+            if (!video.videoUrl.startsWith("smb://")) {
+                MessageHelpers.showMessage(getContext(), R.string.file_delete_error, "Invalid SMB path");
+                return;
+            }
+            
+            new DeleteFileTask().execute(video);
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting delete task", e);
+            MessageHelpers.showMessage(getContext(), R.string.file_delete_error, e.getMessage());
+        }
+    }
+    
+    /**
+     * 异步任务用于删除文件，以避免阻塞UI线程
+     */
+    private class DeleteFileTask extends AsyncTask<Video, Void, Boolean> {
+        private String mErrorMessage;
+        private String mFilePath;
+        
+        @Override
+        protected Boolean doInBackground(Video... videos) {
+            if (videos == null || videos.length == 0 || videos[0] == null) {
+                mErrorMessage = "No valid video to delete";
+                return false;
+            }
+            
+            Video video = videos[0];
+            mFilePath = video.videoUrl;
+            
+            if (TextUtils.isEmpty(mFilePath)) {
+                mErrorMessage = "Empty file path";
+                return false;
+            }
+            
+            try {
+                Log.d(TAG, "开始删除文件: " + mFilePath);
+                
+                // 获取认证上下文
+                CIFSContext baseContext = SingletonContext.getInstance();
+                CIFSContext authenticatedContext;
+                
+                String username = mGeneralData.getSmbUsername();
+                String password = mGeneralData.getSmbPassword();
+                
+                if (!TextUtils.isEmpty(username)) {
+                    Log.d(TAG, "Using authentication with username: " + username);
+                    NtlmPasswordAuthenticator auth = new NtlmPasswordAuthenticator(username, password);
+                    authenticatedContext = baseContext.withCredentials(auth);
+                } else {
+                    Log.d(TAG, "Using anonymous authentication");
+                    authenticatedContext = baseContext;
+                }
+                
+                // 删除主文件
+                SmbFile smbFile = new SmbFile(mFilePath, authenticatedContext);
+                if (smbFile.exists()) {
+                    smbFile.delete();
+                    Log.d(TAG, "文件已删除: " + mFilePath);
+                    
+                    // 查找并删除匹配的字幕文件
+                    deleteMatchingSubtitleFiles(smbFile, authenticatedContext);
+                    
+                    return true;
+                } else {
+                    mErrorMessage = "文件不存在";
+                    return false;
+                }
+                
+            } catch (MalformedURLException e) {
+                Log.e(TAG, "文件路径格式错误: " + mFilePath, e);
+                mErrorMessage = "文件路径格式错误: " + e.getMessage();
+                return false;
+            } catch (SmbException e) {
+                Log.e(TAG, "SMB操作失败: " + e.getMessage(), e);
+                mErrorMessage = "SMB操作失败: " + e.getMessage();
+                return false;
+            } catch (Exception e) {
+                Log.e(TAG, "删除文件失败: " + e.getMessage(), e);
+                mErrorMessage = e.getMessage();
+                return false;
+            }
+        }
+        
+        @Override
+        protected void onPostExecute(Boolean success) {
+            if (getContext() == null) {
+                Log.e(TAG, "Context is null in onPostExecute, cannot show message");
+                return;
+            }
+            
+            if (success) {
+                MessageHelpers.showMessage(getContext(), R.string.file_deleted);
+                // 重新加载当前文件夹以刷新列表
+                if (mCurrentPath != null) {
+                    loadFolder(mCurrentPath);
+                }
+            } else {
+                MessageHelpers.showMessage(getContext(), R.string.file_delete_error, mErrorMessage);
+            }
+        }
+        
+        /**
+         * 查找并删除与视频文件匹配的字幕文件
+         */
+        private void deleteMatchingSubtitleFiles(SmbFile videoFile, CIFSContext authenticatedContext) {
+            if (videoFile == null || authenticatedContext == null) {
+                Log.e(TAG, "Invalid parameters for deleting subtitle files");
+                return;
+            }
+            
+            try {
+                String videoPath = videoFile.getPath();
+                // 检查路径是否有效
+                if (TextUtils.isEmpty(videoPath) || !videoPath.contains(".")) {
+                    Log.e(TAG, "Invalid video path for finding subtitles: " + videoPath);
+                    return;
+                }
+                
+                // 获取不带扩展名的文件路径
+                String basePath = videoPath.substring(0, videoPath.lastIndexOf('.'));
+                Log.d(TAG, "查找字幕文件，基础路径: " + basePath);
+                
+                // 常见字幕文件扩展名
+                String[] subtitleExtensions = {".srt", ".vtt", ".sub", ".sbv", ".ass", ".ssa", ".smi"};
+                // 语言后缀
+                String[] languageSuffixes = {"", ".zh", ".cn", ".en", ".eng", ".zh-CN", ".zh-TW", ".en-US", ".en-GB"};
+                
+                // 搜索字幕文件
+                for (String ext : subtitleExtensions) {
+                    for (String lang : languageSuffixes) {
+                        String subtitlePath = basePath + lang + ext;
+                        try {
+                            SmbFile subtitleFile = new SmbFile(subtitlePath, authenticatedContext);
+                            if (subtitleFile.exists()) {
+                                Log.d(TAG, "删除字幕文件: " + subtitlePath);
+                                subtitleFile.delete();
+                            }
+                        } catch (Exception e) {
+                            Log.e(TAG, "删除字幕文件失败: " + subtitlePath, e);
+                            // 继续删除其他字幕文件
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "查找字幕文件失败", e);
+                // 字幕文件删除失败不应该影响主流程
+            }
+        }
+    }
+
     private class LoadFolderTask extends AsyncTask<String, Void, VideoGroup> {
         private String mErrorMessage;
 

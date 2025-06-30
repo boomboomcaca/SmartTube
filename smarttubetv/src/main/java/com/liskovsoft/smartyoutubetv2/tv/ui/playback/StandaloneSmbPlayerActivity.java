@@ -638,14 +638,14 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                             public void run() {
                                 // 只在达到长按阈值时触发一次
                                 if (System.currentTimeMillis() - mLongPressStartTime > LONG_PRESS_THRESHOLD_MS) {
-                                    mIsLongPress = true;
+                                        mIsLongPress = true;
                                     mIsForwardDirection = isForward; // 设置当前方向
                                     
                                     android.util.Log.d("StandaloneSmbPlayerActivity", "长按触发: " + 
                                                     (isForward ? "前进" : "后退"));
                                     
                                     // 使用默认步进开始
-                                    mLongPressStepIndex = mCurrentSeekStepIndex;
+                                        mLongPressStepIndex = mCurrentSeekStepIndex;
                                     
                                     // 获取当前步长
                                     long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
@@ -1059,8 +1059,8 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         }
         
         // 即使不在长按状态，也移除所有挂起的任务
-        if (mLongPressRunnable != null) {
-            mLongPressHandler.removeCallbacks(mLongPressRunnable);
+            if (mLongPressRunnable != null) {
+                mLongPressHandler.removeCallbacks(mLongPressRunnable);
         }
     }
     

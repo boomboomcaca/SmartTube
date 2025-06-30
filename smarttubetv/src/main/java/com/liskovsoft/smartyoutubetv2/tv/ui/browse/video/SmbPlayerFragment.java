@@ -9,6 +9,7 @@ import android.widget.ProgressBar;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import android.app.AlertDialog;
 import androidx.leanback.widget.OnItemViewClickedListener;
 import androidx.leanback.widget.OnItemViewSelectedListener;
 import androidx.leanback.widget.Presenter;
@@ -18,6 +19,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.SmbPlayerPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SmbPlayerView;
+import com.liskovsoft.smartyoutubetv2.tv.presenter.base.OnItemLongPressedListener;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 
 public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerView {
@@ -42,7 +44,11 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
         
         mIsViewCreated = true;
         
+        // 设置点击监听器
         setOnItemViewClickedListener(new ItemViewClickedListener());
+        
+        // 设置长按监听器处理文件删除
+        setOnItemLongPressListener(new ItemViewLongPressedListener());
         
         // 创建进度条并添加到视图中
         mProgressBar = new ProgressBar(getContext());
@@ -176,6 +182,70 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
     public static void markForReload() {
         Log.d(TAG, "markForReload: Setting reload flag");
         sNeedsReload = true;
+    }
+    
+    private final class ItemViewLongPressedListener implements OnItemLongPressedListener {
+        @Override
+        public void onItemLongPressed(Presenter.ViewHolder itemViewHolder, Object item) {
+            try {
+                if (item instanceof Video) {
+                    Video video = (Video) item;
+                    // 只处理文件，不处理文件夹
+                    if (video != null && !video.isFolder) {
+                        showDeleteConfirmDialog(video);
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error handling long press", e);
+                // 显示错误信息给用户
+                if (getContext() != null) {
+                    Toast.makeText(getContext(), "处理操作时出错", Toast.LENGTH_SHORT).show();
+                }
+            }
+        }
+    }
+    
+    private void showDeleteConfirmDialog(Video video) {
+        if (video == null || getContext() == null) {
+            Log.e(TAG, "Cannot show delete dialog: video or context is null");
+            return;
+        }
+        
+        try {
+            if (getActivity() == null) {
+                Log.e(TAG, "Cannot show delete dialog: activity is null");
+                Toast.makeText(getContext(), "无法显示删除确认对话框：Activity为空", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            // 确保在UI线程上运行
+            getActivity().runOnUiThread(() -> {
+                try {
+                    // 使用Android原生的AlertDialog而不是AppCompat版本
+                    android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(getActivity());
+                    builder.setTitle(R.string.delete_file);
+                    builder.setMessage(String.format(getResources().getString(R.string.confirm_delete_file), video.title));
+                    builder.setNegativeButton(android.R.string.cancel, null); // 默认选择取消
+                    builder.setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                        if (mPresenter != null) {
+                            mPresenter.deleteFile(video);
+                        }
+                    });
+                    
+                    android.app.AlertDialog dialog = builder.create();
+                    dialog.show();
+                    
+                    // 设置默认焦点到取消按钮
+                    dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).requestFocus();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error showing delete dialog on UI thread: " + e.getMessage(), e);
+                    Toast.makeText(getContext(), "无法显示删除确认对话框：" + e.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Error dispatching dialog to UI thread: " + e.getMessage(), e);
+            Toast.makeText(getContext(), "无法显示删除确认对话框：" + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private final class ItemViewClickedListener implements OnItemViewClickedListener {

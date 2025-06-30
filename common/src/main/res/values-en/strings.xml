@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SMB File Operations -->
+    <string name="delete_file">Delete File</string>
+    <string name="confirm_delete_file">Are you sure you want to delete file \"%s\"? Matching subtitle files will also be deleted.</string>
+    <string name="file_deleted">File deleted successfully</string>
+    <string name="file_delete_error">Failed to delete file: %s</string>
+</resources> 

@@ -198,9 +198,9 @@
     <string name="msg_skipping_segment">Skipping segment \"%s\"…</string>
     <string name="content_block_notification_type">Notification type</string>
     <string name="content_block_notify_none">Without notification</string>
-    <string name="content_block_notify_toast">Toast</string>
-    <string name="content_block_notify_dialog">Confirmation dialog</string>
-    <string name="return_to_launcher">Return to the launcher from ATV channels/search</string>
+    <string name="content_block_notify_toast">Show toast</string>
+    <string name="content_block_notify_dialog">Show dialog</string>
+    <string name="return_to_launcher">Return to launcher in the background</string>
     <string name="intent_force_close">Force exit if video has been opened from external source</string>
     <string name="btn_confirm">Confirm</string>
     <string name="player_low_video_quality">Low video quality</string>
@@ -723,4 +723,14 @@
     <string name="smb_server_url_invalid">服务器地址无效</string>
     <string name="smb_credentials_invalid">用户名和密码必须同时设置或同时为空</string>
     <string name="smb_application_aborted">SMB设置应用失败</string>
+    <string name="content_block_skip_once">Skip once</string>
+    <string name="content_block_watch_and_skip">Watch segment once then skip</string>
+    <string name="confirm_segment_skip_watched">Segment has already been watched</string>
+    <string name="application_restart">Please wait while the application is restarting.</string>
+    
+    <!-- SMB File Operations -->
+    <string name="delete_file">删除文件</string>
+    <string name="confirm_delete_file">是否确定删除文件\"%s\"? 匹配的字幕文件也将被删除。</string>
+    <string name="file_deleted">文件已删除</string>
+    <string name="file_delete_error">删除文件失败: %s</string>
 </resources>
