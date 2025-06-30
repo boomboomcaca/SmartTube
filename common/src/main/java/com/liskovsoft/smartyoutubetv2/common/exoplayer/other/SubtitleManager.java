@@ -9,6 +9,7 @@ import android.os.Handler;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.accessibility.CaptioningManager;
 import android.view.accessibility.CaptioningManager.CaptionStyle;
 import android.widget.FrameLayout;
@@ -151,8 +152,29 @@ public class SubtitleManager implements TextOutput, OnDataChange {
             Log.e(TAG, "启用学习中单词高亮功能失败", e);
         }
         
-        // SMB播放器中不使用字幕选词控制器
-        mWordSelectionController = null;
+        // 为SMB播放器创建字幕选词控制器
+        // 查找父视图作为根视图
+        ViewGroup rootView = null;
+        View parent = subtitleView.getParent() instanceof View ? (View) subtitleView.getParent() : null;
+        while (parent != null) {
+            if (parent instanceof FrameLayout) {
+                rootView = (ViewGroup) parent;
+                break;
+            }
+            parent = parent.getParent() instanceof View ? (View) parent.getParent() : null;
+        }
+        
+        // 如果找不到合适的根视图，尝试使用Activity的内容视图
+        if (rootView == null && mContext instanceof Activity) {
+            rootView = ((Activity) mContext).findViewById(android.R.id.content);
+        }
+        
+        if (rootView != null) {
+            mWordSelectionController = new SubtitleWordSelectionController(mContext, mSubtitleView, (FrameLayout) rootView);
+            Log.d(TAG, "SMB播放器: 字幕选词控制器初始化成功");
+        } else {
+            Log.e(TAG, "SMB播放器: 无法找到合适的根视图，字幕选词控制器初始化失败");
+        }
         
         // 初始化自动选词定时器
         initAutoSelectWordRunnable();

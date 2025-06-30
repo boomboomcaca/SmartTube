@@ -4,6 +4,7 @@ import com.google.android.exoplayer2.ui.PlayerView;
 import com.google.android.exoplayer2.ui.SubtitleView;
 import android.widget.FrameLayout;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager;
 
 public interface StandaloneSmbPlayerView {
     void openVideo(Video video);
@@ -26,5 +27,13 @@ public interface StandaloneSmbPlayerView {
      */
     default void initWordSelectionController(SubtitleView subtitleView, FrameLayout rootView) {
         // 默认空实现
+    }
+    
+    /**
+     * 获取字幕管理器
+     * @return 字幕管理器实例
+     */
+    default SubtitleManager getSubtitleManager() {
+        return null;
     }
 } 

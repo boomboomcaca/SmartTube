@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -51,7 +52,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private static final int STEP_CHANGE_INTERVAL_MS = 5000; // 每5秒切换一次步进级别
     private boolean mIsLongPress = false; // 是否处于长按状态
     private long mLongPressStartTime = 0; // 长按开始时间
-    private int mLongPressStepIndex = 0; // 长按时的步长索引
+    private int mLongPressStepIndex = 0; // 长按时的步长索引（注意：长按时从索引1开始，即10秒步进）
     private int mLongPressRepeatCount = 0; // 长按时以相同速度重复的计数
     private Handler mLongPressHandler = new Handler(); // 长按处理器
     private Runnable mLongPressRunnable; // 长按任务
@@ -71,6 +72,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private boolean mIsUserSeeking;
     private boolean mControlsVisible = true; // 初始状态控制界面可见
     
+    // 添加字幕管理器
+    private com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager mSubtitleManager;
+
     private final Runnable mHideUIRunnable = new Runnable() {
         @Override
         public void run() {
@@ -108,6 +112,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 mWordSelectionController = new SubtitleWordSelectionController(this, subtitleView, rootView);
             }
         }
+        
+        // 初始化字幕管理器
+        initSubtitleManager();
         
         // 长按任务将在dispatchKeyEvent中动态创建
         mLongPressRunnable = null;
@@ -371,7 +378,22 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     @Override
     protected void onStart() {
         super.onStart();
+        mPresenter = StandaloneSmbPlayerPresenter.instance(this);
         mPresenter.startProgressUpdates();
+        
+        // 在视图初始化完成后，连接字幕管理器和ExoPlayer
+        if (mPresenter.hasExoPlayer() && mSubtitleManager != null) {
+            android.util.Log.d(TAG, "onStart: 连接字幕管理器和ExoPlayer");
+            mSubtitleManager.setPlayer(mPresenter.getExoPlayer());
+            
+            if (mPresenter.getExoPlayer().getTextComponent() != null) {
+                // 确保ExoPlayer的TextComponent可以将字幕输出到字幕管理器
+                mPresenter.getExoPlayer().getTextComponent().addTextOutput(mSubtitleManager);
+                android.util.Log.d(TAG, "字幕管理器已连接到ExoPlayer的TextComponent");
+            } else {
+                android.util.Log.e(TAG, "ExoPlayer的TextComponent为空，无法连接字幕管理器");
+            }
+        }
     }
 
     @Override
@@ -384,12 +406,30 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
 
     @Override
     protected void onDestroy() {
+        super.onDestroy();
+        
+        // 释放字幕选词控制器资源
         if (mWordSelectionController != null) {
             mWordSelectionController.release();
             mWordSelectionController = null;
         }
-        mPresenter.releasePlayer();
-        super.onDestroy();
+        
+        // 释放字幕管理器资源
+        if (mSubtitleManager != null) {
+            mSubtitleManager.release();
+            mSubtitleManager = null;
+        }
+        
+        // 取消所有延迟任务
+        if (mHandler != null) {
+            mHandler.removeCallbacksAndMessages(null);
+            mHandler = null;
+        }
+        
+        // 释放播放器资源
+        if (mPresenter != null) {
+            mPresenter.releasePlayer();
+        }
     }
 
     /**
@@ -575,471 +615,72 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      * 检查当前是否有字幕文本
      */
     private boolean hasSubtitleText() {
-        boolean result = mWordSelectionController != null && mWordSelectionController.hasSubtitleText();
-        android.util.Log.d("StandaloneSmbPlayerActivity", "hasSubtitleText: " + result + 
-                          ", mWordSelectionController=" + (mWordSelectionController != null ? "非空" : "为空"));
-        return result;
+        if (mWordSelectionController != null) {
+            return mWordSelectionController.hasSubtitleText();
+        } else if (mSubtitleManager != null && mSubtitleManager.getWordSelectionController() != null) {
+            return mSubtitleManager.getWordSelectionController().hasSubtitleText();
+        }
+        return false;
     }
     
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        // 左右方向键的处理需要最高优先级，无论控制栏是否显示
-        int keyCode = event.getKeyCode();
-        
-        // 如果是在字幕选词模式下，不拦截事件
+        // 首先检查是否在选词模式，优先处理
         if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
-            // 继续正常的事件分发
+            boolean handled = mWordSelectionController.handleKeyEvent(event);
+            if (handled) {
+                return true;
+            }
+            // 如果选词模式没有处理该事件，继续正常的事件分发
             return super.dispatchKeyEvent(event);
         }
+        
+        // 左右方向键的处理需要最高优先级，无论控制栏是否显示
+        int keyCode = event.getKeyCode();
         
         // 处理按键释放事件
         if (event.getAction() == KeyEvent.ACTION_UP) {
             // 处理左右键释放，取消长按状态
             if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                cancelLongPress();
+                // 如果是长按结束，取消长按状态
+                if (mIsLongPress) {
+                    cancelLongPress();
+                    return true;
+                }
             }
             
-            // 对于任何按键释放事件，都重置计时器
-            if (mControlsVisible) {
-                scheduleHideControls();
+            // 处理特殊按键，用于触发字幕选词功能
+            if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_ENTER) {
+                if (hasSubtitleText() && mWordSelectionController != null && !mWordSelectionController.isInWordSelectionMode()) {
+                    // 仅当有字幕文本时才进入选词模式
+                    enterWordSelectionMode(true); // 从第一个单词开始
+                    return true;
+                }
             }
         }
         
-        // 处理按键按下事件
-        if (event.getAction() == KeyEvent.ACTION_DOWN) {
-            // 左右键处理 - 根据不同状态有不同行为
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                // 如果控制栏可见，执行前进/后退功能
-                if (mControlsVisible) {
-                    // 检查是否是重复事件（按键长按）
-                    if (event.getRepeatCount() == 0) {
-                        // 首次按下，先取消可能存在的之前的长按任务
-                        cancelLongPress();
-                        
-                        // 记录时间
-                        mLongPressStartTime = System.currentTimeMillis();
-                        mIsLongPress = false;
-                        mLongPressStepIndex = 0; // 重置步长索引
-                        
-                        // 执行正常的前进后退
-                        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                            android.util.Log.d("StandaloneSmbPlayerActivity", "dispatchKeyEvent: 左键按下，执行后退操作");
-                            seekBackward();
-                        } else { // KEYCODE_DPAD_RIGHT
-                            android.util.Log.d("StandaloneSmbPlayerActivity", "dispatchKeyEvent: 右键按下，执行前进操作");
-                            seekForward();
-                        }
-                        
-                        // 创建长按任务，检测长按状态
-                        final boolean isForward = (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT);
-                        mLongPressRunnable = new Runnable() {
-                            @Override
-                            public void run() {
-                                // 只在达到长按阈值时触发一次
-                                if (System.currentTimeMillis() - mLongPressStartTime > LONG_PRESS_THRESHOLD_MS) {
-                                        mIsLongPress = true;
-                                    mIsForwardDirection = isForward; // 设置当前方向
-                                    
-                                    android.util.Log.d("StandaloneSmbPlayerActivity", "长按触发: " + 
-                                                    (isForward ? "前进" : "后退"));
-                                    
-                                    // 使用默认步进开始
-                                        mLongPressStepIndex = 1; // 从10秒步进开始（索引1对应10000ms）
-                                    
-                                    // 获取当前步长
-                                    long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
-                                    
-                                    // 执行首次前进后退操作
-                                    // 后续操作会在操作完成后的回调中自动连续执行
-                                    if (isForward) {
-                                        seekForwardWithStep(currentStepMs);
-                                    } else {
-                                        seekBackwardWithStep(currentStepMs);
-                                    }
-                                }
-                            }
-                        };
-                        
-                        // 启动长按检测
-                        mLongPressHandler.postDelayed(mLongPressRunnable, LONG_PRESS_THRESHOLD_MS);
-                    }
-                    
-                    // 重置自动隐藏计时器
-                    scheduleHideControls();
-                    return true;
-                } 
-                // 如果控制栏不可见且有字幕，则进入选词模式
-                else if (hasSubtitleText()) {
-                    android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏不可见且有字幕，进入选词模式");
-                    // 根据按键方向决定从哪个词开始选择
-                    boolean fromStart = (keyCode != KeyEvent.KEYCODE_DPAD_LEFT); // 左键从最后一个词开始，右键从第一个词开始
-                    enterWordSelectionMode(fromStart);
-                    return true;
-                }
-                // 其他情况，不做特殊处理，也不显示控制栏
-                return super.dispatchKeyEvent(event);
-            }
-            
-            // 返回键特殊处理 - 直接传递给onKeyDown处理
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                return super.dispatchKeyEvent(event);
-            }
-            
-            // 上下按键和OK按键特殊处理 - 显示控制栏
-            if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN || 
-                keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-                
-                android.util.Log.d("StandaloneSmbPlayerActivity", "上下/OK按键按下，显示控制栏");
-                
-                // 如果控制栏不可见，则显示控制栏
-                if (!mControlsVisible) {
-                    showControls();
+        // 处理长按事件
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0) {
+            // 用户长按左键
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && event.getRepeatCount() == 10) {
+                // 如果有字幕文本，长按左键10次进入选词模式并从最后一个单词开始
+                if (hasSubtitleText() && mWordSelectionController != null && !mWordSelectionController.isInWordSelectionMode()) {
+                    enterWordSelectionMode(false); // 从最后一个单词开始
                     return true;
                 }
             }
             
-            // 对于其他按键，如果控制栏可见，则重置自动隐藏计时器
-            if (mControlsVisible) {
-                scheduleHideControls();
+            // 用户长按右键
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && event.getRepeatCount() == 10) {
+                // 如果有字幕文本，长按右键10次进入选词模式并从第一个单词开始
+                if (hasSubtitleText() && mWordSelectionController != null && !mWordSelectionController.isInWordSelectionMode()) {
+                    enterWordSelectionMode(true); // 从第一个单词开始
+                    return true;
+                }
             }
-            
-            // 不再自动显示控制栏
-            // 让事件继续传递
         }
-
-        // 继续正常的事件分发
+        
         return super.dispatchKeyEvent(event);
-    }
-    
-    @Override
-    public boolean onKeyLongPress(int keyCode, KeyEvent event) {
-        // 不再需要在长按事件中处理选词模式
-        return super.onKeyLongPress(keyCode, event);
-    }
-    
-    /**
-     * 根据视频长度和当前配置来确定最佳的跳转时间
-     * 支持两种模式：
-     * 1. 根据步长索引从预定义时间数组中选择固定时间
-     * 2. 根据视频总长度按百分比计算跳转时间（长视频使用）
-     */
-    private long getSeekStepMs() {
-        // 直接返回固定步长，不再考虑百分比步长
-        return SEEK_STEPS[mCurrentSeekStepIndex];
-    }
-    
-    /**
-     * 重写后退功能，使其更智能
-     */
-    private void seekBackward() {
-        try {
-        long position = mPresenter.getPositionMs();
-            long stepMs = getSeekStepMs();
-            long currentTime = System.currentTimeMillis();
-            boolean isConsecutiveClick = false;
-            
-            // 检查是否是连续点击
-            if (currentTime - mLastSeekTime < CONSECUTIVE_CLICK_TIMEOUT_MS) {
-                // 如果上次是前进，而这次是后退，则重置累积值
-                if (mIsForwardDirection) {
-                    mAccumulatedSeekMs = 0;
-                    mConsecutiveSeekCount = 0;
-                } else {
-                    isConsecutiveClick = true;
-                }
-            } else {
-                // 超过超时时间，重置累积值
-                mAccumulatedSeekMs = 0;
-                mConsecutiveSeekCount = 0;
-            }
-            
-            // 更新方向和时间戳
-            mIsForwardDirection = false;
-            mLastSeekTime = currentTime;
-            mConsecutiveSeekCount++;
-            
-            // 累积跳转时间
-            mAccumulatedSeekMs += stepMs;
-            
-            // 计算新位置
-            long newPosition = Math.max(0, position - stepMs);
-            
-            android.util.Log.d("StandaloneSmbPlayerActivity", "后退: 当前位置=" + position + 
-                              "ms, 步长=" + stepMs + "ms, 新位置=" + newPosition + 
-                              "ms, 连续点击次数=" + mConsecutiveSeekCount +
-                              ", 累积跳转时间=" + mAccumulatedSeekMs + "ms");
-            
-            // 计算实际跳转时间（考虑边界情况）
-            long actualJumpMs = position - newPosition;
-            
-            // 设置新位置
-        mPresenter.setPositionMs(newPosition);
-        
-            // 验证跳转是否成功
-            mHandler.postDelayed(() -> {
-                long currentPos = mPresenter.getPositionMs();
-                if (Math.abs(currentPos - newPosition) > 1000) { // 如果差异超过1秒
-                    android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作验证失败: 期望位置=" + 
-                                      newPosition + "ms, 实际位置=" + currentPos + "ms, 差异=" + 
-                                      Math.abs(currentPos - newPosition) + "ms");
-                    
-                    // 再次尝试设置位置
-                    mPresenter.setPositionMs(newPosition);
-                    
-                    // 延迟再次验证
-                    mHandler.postDelayed(() -> {
-                        long verifiedPos = mPresenter.getPositionMs();
-                        // 无论成功与否，都更新UI，但记录日志
-                        if (Math.abs(verifiedPos - newPosition) > 1000) {
-                            android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作二次验证仍然失败");
-                        }
-                        // 更新UI显示
-                        updatePosition(verifiedPos);
-                        updateSeekBarForPosition(verifiedPos);
-                    }, 100);
-                } else {
-                    android.util.Log.d("StandaloneSmbPlayerActivity", "后退操作验证成功: 位置已正确设置");
-                    // 操作成功，更新UI显示
-                    updatePosition(currentPos);
-                    updateSeekBarForPosition(currentPos);
-                }
-            }, 200);
-        } catch (Exception e) {
-            android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作失败", e);
-            MessageHelpers.showMessage(this, "后退操作失败: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * 重写前进功能，使其更智能
-     */
-    private void seekForward() {
-        try {
-        long position = mPresenter.getPositionMs();
-        long duration = mPresenter.getDurationMs();
-            long stepMs = getSeekStepMs();
-            long currentTime = System.currentTimeMillis();
-            boolean isConsecutiveClick = false;
-            
-            // 检查是否是连续点击
-            if (currentTime - mLastSeekTime < CONSECUTIVE_CLICK_TIMEOUT_MS) {
-                // 如果上次是后退，而这次是前进，则重置累积值
-                if (!mIsForwardDirection) {
-                    mAccumulatedSeekMs = 0;
-                    mConsecutiveSeekCount = 0;
-                } else {
-                    isConsecutiveClick = true;
-                }
-            } else {
-                // 超过超时时间，重置累积值
-                mAccumulatedSeekMs = 0;
-                mConsecutiveSeekCount = 0;
-            }
-            
-            // 更新方向和时间戳
-            mIsForwardDirection = true;
-            mLastSeekTime = currentTime;
-            mConsecutiveSeekCount++;
-            
-            // 累积跳转时间
-            mAccumulatedSeekMs += stepMs;
-            
-            // 计算新位置
-            long newPosition = Math.min(duration, position + stepMs);
-            
-            android.util.Log.d("StandaloneSmbPlayerActivity", "前进: 当前位置=" + position + 
-                              "ms, 步长=" + stepMs + "ms, 新位置=" + newPosition + 
-                              "ms, 总时长=" + duration + "ms, 连续点击次数=" + mConsecutiveSeekCount +
-                              ", 累积跳转时间=" + mAccumulatedSeekMs + "ms");
-            
-            // 计算实际跳转时间（考虑边界情况）
-            long actualJumpMs = newPosition - position;
-            
-            // 设置新位置
-        mPresenter.setPositionMs(newPosition);
-        
-            // 验证跳转是否成功
-            mHandler.postDelayed(() -> {
-                long currentPos = mPresenter.getPositionMs();
-                if (Math.abs(currentPos - newPosition) > 1000) { // 如果差异超过1秒
-                    android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作验证失败: 期望位置=" + 
-                                      newPosition + "ms, 实际位置=" + currentPos + "ms, 差异=" + 
-                                      Math.abs(currentPos - newPosition) + "ms");
-                    
-                    // 再次尝试设置位置
-                    mPresenter.setPositionMs(newPosition);
-                    
-                    // 延迟再次验证
-                    mHandler.postDelayed(() -> {
-                        long verifiedPos = mPresenter.getPositionMs();
-                        // 无论成功与否，都更新UI，但记录日志
-                        if (Math.abs(verifiedPos - newPosition) > 1000) {
-                            android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作二次验证仍然失败");
-                        }
-                        // 更新UI显示
-                        updatePosition(verifiedPos);
-                        updateSeekBarForPosition(verifiedPos);
-                    }, 100);
-                } else {
-                    android.util.Log.d("StandaloneSmbPlayerActivity", "前进操作验证成功: 位置已正确设置");
-                    
-                    // 操作成功，更新UI显示
-                    updatePosition(currentPos);
-                    updateSeekBarForPosition(currentPos);
-                }
-            }, 200);
-        } catch (Exception e) {
-            android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作失败", e);
-            MessageHelpers.showMessage(this, "前进操作失败: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * 更新进度条位置（适用于前进/后退操作）
-     */
-    private void updateSeekBarForPosition(long positionMs) {
-        if (mSeekBar != null) {
-            int progress = calculateProgressFromPosition(positionMs);
-            mSeekBar.setProgress(progress);
-        }
-    }
-    
-    /**
-     * 手动触发进入选词模式
-     * 可以通过菜单或其他UI元素调用此方法
-     */
-    private void enterWordSelectionMode(boolean fromStart) {
-        android.util.Log.d("StandaloneSmbPlayerActivity", "手动触发进入选词模式: fromStart=" + fromStart);
-        
-        if (mWordSelectionController != null) {
-            mWordSelectionController.enterWordSelectionMode(fromStart);
-        } else {
-            android.util.Log.e("StandaloneSmbPlayerActivity", "无法进入选词模式: 字幕选词控制器为null");
-            
-            // 尝试初始化字幕选词控制器
-            if (mPlayerView != null) {
-                SubtitleView subtitleView = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_subtitles);
-                if (subtitleView != null && mPlayerView.getParent() instanceof FrameLayout) {
-                    FrameLayout rootView = (FrameLayout) mPlayerView.getParent();
-                    mWordSelectionController = new SubtitleWordSelectionController(this, subtitleView, rootView);
-                    
-                    // 再次尝试进入选词模式
-                    if (mWordSelectionController != null) {
-                        mWordSelectionController.enterWordSelectionMode(fromStart);
-                    }
-                }
-            }
-        }
-    }
-    
-    /**
-     * 显示控制界面
-     */
-    private void showControls() {
-        // 先检查当前状态
-        boolean wasVisible = mControlsVisible;
-        
-        // 更新UI - 所有控制元素都在底部，一起显示
-        mTitleContainer.setVisibility(View.VISIBLE);
-        mControlsContainer.setVisibility(View.VISIBLE);
-        
-        // 更新状态变量
-        mControlsVisible = true;
-        
-        // 记录日志
-        if (!wasVisible) {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "显示控制栏，mControlsVisible从false变为true");
-        } else {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏已经是可见状态，保持mControlsVisible=true");
-        }
-        
-        // 重新安排自动隐藏
-        scheduleHideControls();
-    }
-    
-    /**
-     * 隐藏控制界面
-     */
-    private void hideControls() {
-        // 先检查当前状态
-        boolean wasVisible = mControlsVisible;
-        
-        // 更新UI - 所有控制元素一起隐藏
-        mTitleContainer.setVisibility(View.GONE);
-        mControlsContainer.setVisibility(View.GONE);
-        
-        // 错误信息如果正在显示，也应该隐藏
-        if (mErrorTextView.getVisibility() == View.VISIBLE) {
-            mErrorTextView.setVisibility(View.GONE);
-        }
-        
-        // 更新状态变量
-        mControlsVisible = false;
-        
-        // 记录日志
-        if (wasVisible) {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "隐藏控制栏，mControlsVisible从true变为false");
-        } else {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏已经是隐藏状态，保持mControlsVisible=false");
-        }
-    }
-    
-    /**
-     * 切换控制界面显示/隐藏状态
-     */
-    private void toggleControlsVisibility() {
-        android.util.Log.d("StandaloneSmbPlayerActivity", "toggleControlsVisibility被调用，当前控制栏状态: " + 
-                          (mControlsVisible ? "可见" : "不可见") + ", mControlsVisible=" + mControlsVisible);
-                          
-        if (mControlsVisible) {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "切换控制栏：当前可见，准备隐藏");
-            hideControls();
-            mHandler.removeCallbacks(mHideUIRunnable);
-        } else {
-            android.util.Log.d("StandaloneSmbPlayerActivity", "切换控制栏：当前不可见，准备显示");
-            showControls();
-            // 显示时已经调用了scheduleHideControls()，不需要重复调用
-        }
-    }
-    
-    /**
-     * 安排自动隐藏控制界面的任务
-     */
-    private void scheduleHideControls() {
-        mHandler.removeCallbacks(mHideUIRunnable);
-        mHandler.postDelayed(mHideUIRunnable, AUTO_HIDE_DELAY_MS);
-        android.util.Log.d("StandaloneSmbPlayerActivity", "安排" + (AUTO_HIDE_DELAY_MS/1000) + "秒后自动隐藏控制栏");
-    }
-    
-    /**
-     * 获取ExoPlayer的PlayerView
-     */
-    @Override
-    public PlayerView getPlayerView() {
-        return mPlayerView;
-    }
-
-    @Override
-    public boolean onKeyUp(int keyCode, KeyEvent event) {
-        android.util.Log.d("StandaloneSmbPlayerActivity", "onKeyUp: keyCode=" + keyCode + ", 控制栏状态: " + 
-                          (mControlsVisible ? "可见" : "不可见") + ", mControlsVisible=" + mControlsVisible);
-        
-        // 如果是在字幕选词模式下，将事件传递给字幕选词控制器
-        if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
-            return mWordSelectionController.handleKeyEvent(event);
-        }
-        
-        // 处理左右键释放，取消长按状态
-        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-            cancelLongPress();
-        }
-        
-        // 对于任何按键释放事件，都重置计时器
-        if (mControlsVisible) {
-            scheduleHideControls();
-        }
-        
-        return super.onKeyUp(keyCode, event);
     }
     
     /**
@@ -1294,15 +935,64 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     }
 
     /**
-     * 初始化字幕选词控制器
-     * @param subtitleView 字幕视图
-     * @param rootView 根视图
+     * 获取ExoPlayer的PlayerView
+     * 实现StandaloneSmbPlayerView接口的必要方法
      */
     @Override
-    public void initWordSelectionController(SubtitleView subtitleView, FrameLayout rootView) {
-        if (subtitleView != null && rootView != null) {
-            mWordSelectionController = new SubtitleWordSelectionController(this, subtitleView, rootView);
+    public PlayerView getPlayerView() {
+        return mPlayerView;
+    }
+
+    /**
+     * 初始化字幕管理器
+     */
+    private void initSubtitleManager() {
+        if (mPlayerView != null) {
+            SubtitleView subtitleView = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_subtitles);
+            if (subtitleView != null) {
+                // 创建字幕管理器
+                mSubtitleManager = new com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager(subtitleView);
+                android.util.Log.d(TAG, "字幕管理器初始化成功");
+                
+                // 查找父视图作为根视图以初始化字幕选词控制器
+                ViewGroup rootView = null;
+                View parent = subtitleView.getParent() instanceof View ? (View) subtitleView.getParent() : null;
+                while (parent != null) {
+                    if (parent instanceof FrameLayout) {
+                        rootView = (ViewGroup) parent;
+                        break;
+                    }
+                    parent = parent.getParent() instanceof View ? (View) parent.getParent() : null;
+                }
+                
+                if (rootView != null) {
+                    // 初始化字幕选词控制器
+                    initWordSelectionController(subtitleView, (FrameLayout) rootView);
+                } else {
+                    android.util.Log.e(TAG, "无法找到合适的根视图用于字幕选词控制器");
+                }
+            } else {
+                android.util.Log.e(TAG, "找不到字幕视图，无法初始化字幕管理器");
+            }
         }
+    }
+    
+    /**
+     * 获取字幕管理器，实现StandaloneSmbPlayerView接口
+     */
+    @Override
+    public com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager getSubtitleManager() {
+        if (mSubtitleManager == null) {
+            initSubtitleManager();
+        }
+        return mSubtitleManager;
+    }
+    
+    /**
+     * 设置播放状态
+     */
+    public void setPlayWhenReady(boolean play) {
+        play(play);
     }
 
     /**
@@ -1360,5 +1050,132 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         // 显示对话框
         android.app.AlertDialog dialog = builder.create();
         dialog.show();
+    }
+
+    /**
+     * 初始化字幕选词控制器
+     * @param subtitleView 字幕视图
+     * @param rootView 根视图
+     */
+    @Override
+    public void initWordSelectionController(SubtitleView subtitleView, FrameLayout rootView) {
+        if (subtitleView != null && rootView != null) {
+            if (mWordSelectionController == null) {
+                mWordSelectionController = new SubtitleWordSelectionController(this, subtitleView, rootView);
+                android.util.Log.d(TAG, "字幕选词控制器通过接口方法初始化成功");
+            } else {
+                android.util.Log.d(TAG, "字幕选词控制器已存在，无需重新初始化");
+            }
+        } else {
+            android.util.Log.e(TAG, "无法初始化字幕选词控制器：参数无效");
+        }
+    }
+
+    /**
+     * 手动触发进入选词模式
+     * @param fromStart 是否从第一个单词开始选择，true表示从第一个词开始，false表示从最后一个词开始
+     */
+    private void enterWordSelectionMode(boolean fromStart) {
+        android.util.Log.d("StandaloneSmbPlayerActivity", "手动触发进入选词模式: fromStart=" + fromStart);
+        
+        if (mWordSelectionController != null) {
+            mWordSelectionController.enterWordSelectionMode(fromStart);
+        } else if (mSubtitleManager != null && mSubtitleManager.getWordSelectionController() != null) {
+            mSubtitleManager.getWordSelectionController().enterWordSelectionMode(fromStart);
+        } else {
+            android.util.Log.e("StandaloneSmbPlayerActivity", "无法进入选词模式: 字幕选词控制器为null");
+            
+            // 尝试初始化字幕选词控制器
+            if (mPlayerView != null) {
+                SubtitleView subtitleView = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_subtitles);
+                if (subtitleView != null && mPlayerView.getParent() instanceof FrameLayout) {
+                    FrameLayout rootView = (FrameLayout) mPlayerView.getParent();
+                    initWordSelectionController(subtitleView, rootView);
+                    
+                    // 再次尝试进入选词模式
+                    if (mWordSelectionController != null) {
+                        mWordSelectionController.enterWordSelectionMode(fromStart);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 显示控制界面
+     */
+    private void showControls() {
+        if (mControlsContainer != null) {
+            mControlsContainer.setVisibility(View.VISIBLE);
+            mTitleContainer.setVisibility(View.VISIBLE);
+            mControlsVisible = true;
+            scheduleHideControls();
+        }
+    }
+    
+    /**
+     * 隐藏控制界面
+     */
+    private void hideControls() {
+        if (mControlsContainer != null) {
+            mControlsContainer.setVisibility(View.GONE);
+            mTitleContainer.setVisibility(View.GONE);
+            mControlsVisible = false;
+        }
+    }
+    
+    /**
+     * 切换控制界面的可见性
+     */
+    private void toggleControlsVisibility() {
+        if (mControlsVisible) {
+            hideControls();
+        } else {
+            showControls();
+        }
+    }
+    
+    /**
+     * 安排控制界面自动隐藏
+     */
+    private void scheduleHideControls() {
+        mHandler.removeCallbacks(mHideUIRunnable);
+        mHandler.postDelayed(mHideUIRunnable, AUTO_HIDE_DELAY_MS);
+    }
+    
+    /**
+     * 后退跳转
+     */
+    private void seekBackward() {
+        if (mPresenter != null) {
+            long positionMs = mPresenter.getPositionMs();
+            long stepMs = SEEK_STEPS[mCurrentSeekStepIndex];
+            seekBackwardWithStep(stepMs);
+        }
+    }
+    
+    /**
+     * 前进跳转
+     */
+    private void seekForward() {
+        if (mPresenter != null) {
+            long positionMs = mPresenter.getPositionMs();
+            long stepMs = SEEK_STEPS[mCurrentSeekStepIndex];
+            seekForwardWithStep(stepMs);
+        }
+    }
+    
+    /**
+     * 更新进度条位置
+     */
+    private void updateSeekBarForPosition(long positionMs) {
+        if (mSeekBar != null && !mIsUserSeeking) {
+            int progress = calculateProgressFromPosition(positionMs);
+            mSeekBar.setProgress(progress);
+            
+            if (mPositionView != null) {
+                mPositionView.setText(formatTime(positionMs));
+            }
+        }
     }
 } 

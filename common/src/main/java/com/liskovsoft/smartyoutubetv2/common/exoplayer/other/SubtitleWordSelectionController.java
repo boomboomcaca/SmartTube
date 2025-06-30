@@ -469,11 +469,25 @@ public class SubtitleWordSelectionController {
             mLastSubtitleChangeTime = System.currentTimeMillis();
             
             // 检查是否启用了"字幕结束时自动选择最后一个单词"功能
-            if (!mIsWordSelectionMode && !mCurrentSubtitleText.isEmpty() && 
+            if (!mIsWordSelectionMode && 
                     com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(mContext).isAutoSelectLastWordEnabled()) {
-                // 如果当前不在选词模式，且有新字幕，且启用了自动选词功能，则自动进入选词模式并从最后一个单词开始
-                Log.d(TAG, "检测到新字幕且启用了自动选词功能，自动进入选词模式并从最后一个单词开始");
-                enterWordSelectionMode(false); // 从最后一个单词开始
+                
+                // 只有当旧字幕不为空且新字幕为空时，才表示字幕结束
+                if (!oldSubtitleText.isEmpty() && mCurrentSubtitleText.isEmpty()) {
+                    Log.d(TAG, "检测到字幕结束且启用了自动选词功能，自动进入选词模式并从最后一个单词开始");
+                    
+                    // 暂时保存旧字幕，因为当前字幕已经为空
+                    String tempSubtitle = mCurrentSubtitleText;
+                    mCurrentSubtitleText = oldSubtitleText;
+                    
+                    // 从最后一个单词开始进入选词模式
+                    enterWordSelectionMode(false);
+                    
+                    // 如果enterWordSelectionMode失败，恢复当前字幕
+                    if (!mIsWordSelectionMode) {
+                        mCurrentSubtitleText = tempSubtitle;
+                    }
+                }
             }
         }
         

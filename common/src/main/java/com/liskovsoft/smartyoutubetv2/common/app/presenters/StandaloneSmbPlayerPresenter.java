@@ -287,7 +287,8 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
     }
     
     /**
-     * 检查ExoPlayer是否存在
+     * 检查ExoPlayer是否已初始化
+     * @return 如果ExoPlayer已初始化并可用，则返回true
      */
     public boolean hasExoPlayer() {
         return mExoPlayer != null;
@@ -476,5 +477,14 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
         
         Log.d(TAG, "未找到匹配的字幕文件");
         return null;
+    }
+
+    /**
+     * 获取ExoPlayer实例
+     * 注意: 此方法仅供字幕管理器等内部组件使用
+     * @return ExoPlayer实例
+     */
+    public SimpleExoPlayer getExoPlayer() {
+        return mExoPlayer;
     }
 } 
