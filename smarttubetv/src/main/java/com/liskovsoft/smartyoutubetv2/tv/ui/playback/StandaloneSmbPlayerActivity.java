@@ -560,9 +560,8 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 scheduleHideControls();
                 return true;
             case KeyEvent.KEYCODE_MENU:
-                // 按下菜单键进入选词模式
-                enterWordSelectionMode(true);
-                scheduleHideControls();
+                // 按下菜单键显示设置菜单
+                showSettingsMenu();
                 return true;
         }
         
@@ -1316,5 +1315,50 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 com.google.android.exoplayer2.ui.R.drawable.exo_controls_pause : 
                 com.google.android.exoplayer2.ui.R.drawable.exo_controls_play);
         }
+    }
+
+    /**
+     * 显示SMB播放器设置菜单
+     */
+    private void showSettingsMenu() {
+        android.util.Log.d("StandaloneSmbPlayerActivity", "显示设置菜单");
+        
+        // 创建对话框构建器
+        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this);
+        builder.setTitle("SMB播放器设置");
+        
+        // 创建设置项
+        java.util.List<String> items = new java.util.ArrayList<>();
+        java.util.List<Runnable> actions = new java.util.ArrayList<>();
+        
+        // 添加"字幕结束时自动选择最后一个单词"开关
+        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+        boolean isAutoSelectLastWordEnabled = playerData.isAutoSelectLastWordEnabled();
+        items.add("字幕结束时自动选择最后一个单词: " + (isAutoSelectLastWordEnabled ? "开启" : "关闭"));
+        actions.add(() -> {
+            // 切换开关状态
+            playerData.enableAutoSelectLastWord(!isAutoSelectLastWordEnabled);
+            // 显示提示
+            android.widget.Toast.makeText(this, 
+                    "字幕结束时自动选择最后一个单词: " + (!isAutoSelectLastWordEnabled ? "开启" : "关闭"), 
+                    android.widget.Toast.LENGTH_SHORT).show();
+        });
+        
+        // 设置点击监听器
+        builder.setItems(items.toArray(new String[0]), (dialog, which) -> {
+            // 执行选择的操作
+            if (which >= 0 && which < actions.size()) {
+                actions.get(which).run();
+            }
+            dialog.dismiss();
+        });
+        
+        // 添加取消按钮
+        builder.setNegativeButton("取消", (dialog, which) -> dialog.dismiss());
+        
+        // 显示对话框
+        android.app.AlertDialog dialog = builder.create();
+        dialog.show();
     }
 } 
