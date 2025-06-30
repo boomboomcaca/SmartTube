@@ -645,7 +645,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                                                     (isForward ? "前进" : "后退"));
                                     
                                     // 使用默认步进开始
-                                        mLongPressStepIndex = mCurrentSeekStepIndex;
+                                        mLongPressStepIndex = 1; // 从10秒步进开始（索引1对应10000ms）
                                     
                                     // 获取当前步长
                                     long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
