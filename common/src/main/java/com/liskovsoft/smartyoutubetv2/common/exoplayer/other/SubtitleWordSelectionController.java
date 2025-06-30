@@ -256,6 +256,14 @@ public class SubtitleWordSelectionController {
             return false;
         }
         
+        // 音量键不拦截，让系统正常处理
+        if (event.getKeyCode() == KeyEvent.KEYCODE_VOLUME_UP || 
+            event.getKeyCode() == KeyEvent.KEYCODE_VOLUME_DOWN ||
+            event.getKeyCode() == KeyEvent.KEYCODE_VOLUME_MUTE) {
+            Log.d(TAG, "选词模式下不拦截音量键: " + event.getKeyCode());
+            return false;
+        }
+        
         if (event.getAction() != KeyEvent.ACTION_DOWN) {
             return true;
         }
