@@ -124,12 +124,23 @@
                 android:textSize="14sp"
                 android:text="00:00" />
                 
-                <!-- 添加播放/暂停按钮 -->
+                <!-- 弹性空间，使按钮靠右对齐 -->
                 <View
                     android:layout_width="0dp"
                     android:layout_height="0dp"
                     android:layout_weight="1" />
+                
+                <!-- 添加自动选词开关 -->
+                <ImageButton
+                    android:id="@+id/auto_select_word_button"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@android:drawable/ic_dialog_info"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="字幕结束时自动选择最后一个单词"
+                    android:layout_marginEnd="8dp" />
                     
+                <!-- 播放/暂停按钮 -->
                 <ImageButton
                     android:id="@+id/play_pause_button"
                     android:layout_width="40dp"

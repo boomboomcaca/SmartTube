@@ -71,6 +71,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private TextView mDurationView;
     private SeekBar mSeekBar;
     private ImageButton mPlayPauseButton;
+    private ImageButton mAutoSelectWordButton; // 添加自动选词按钮引用
     private Handler mHandler;
     private boolean mIsUserSeeking;
     private boolean mControlsVisible = true; // 初始状态控制界面可见
@@ -133,6 +134,11 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             // 初始化播放按钮状态
             updatePlayPauseButton(true);
             
+            // 初始化自动选词按钮状态
+            com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                    com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+            updateAutoSelectWordButton(playerData.isAutoSelectLastWordEnabled());
+            
             // 启动自动隐藏UI的定时器
             scheduleHideControls();
         } else {
@@ -171,6 +177,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         mDurationView = findViewById(R.id.duration_view);
         mSeekBar = findViewById(R.id.seek_bar);
         mPlayPauseButton = findViewById(R.id.play_pause_button);
+        mAutoSelectWordButton = findViewById(R.id.auto_select_word_button); // 初始化自动选词按钮
     }
     
     private void initListeners() {
@@ -220,6 +227,27 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             boolean isPlaying = isPlaying();
             play(!isPlaying);
             updatePlayPauseButton(!isPlaying);
+            scheduleHideControls();
+        });
+        
+        // 自动选词按钮点击事件
+        mAutoSelectWordButton.setOnClickListener(v -> {
+            com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                    com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+            boolean isEnabled = playerData.isAutoSelectLastWordEnabled();
+            
+            // 切换状态
+            playerData.enableAutoSelectLastWord(!isEnabled);
+            
+            // 更新按钮状态
+            updateAutoSelectWordButton(!isEnabled);
+            
+            // 显示提示
+            android.widget.Toast.makeText(this, 
+                    "字幕结束时自动选择最后一个单词: " + (!isEnabled ? "开启" : "关闭"), 
+                    android.widget.Toast.LENGTH_SHORT).show();
+            
+            // 重置控制栏自动隐藏计时器
             scheduleHideControls();
         });
     }
@@ -615,8 +643,21 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 scheduleHideControls();
                 return true;
             case KeyEvent.KEYCODE_MENU:
-                // 按下菜单键显示设置菜单
-                showSettingsMenu();
+                // 显示控制栏
+                showControls();
+                
+                // 切换自动选词状态
+                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+                boolean isEnabled = playerData.isAutoSelectLastWordEnabled();
+                playerData.enableAutoSelectLastWord(!isEnabled);
+                updateAutoSelectWordButton(!isEnabled);
+                
+                // 显示提示
+                android.widget.Toast.makeText(this, 
+                        "字幕结束时自动选择最后一个单词: " + (!isEnabled ? "开启" : "关闭"), 
+                        android.widget.Toast.LENGTH_SHORT).show();
+                
                 return true;
         }
         
@@ -710,7 +751,21 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             
             // 菜单键处理
             if (keyCode == KeyEvent.KEYCODE_MENU) {
-                showSettingsMenu();
+                // 显示控制栏
+                showControls();
+                
+                // 切换自动选词状态
+                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+                boolean isEnabled = playerData.isAutoSelectLastWordEnabled();
+                playerData.enableAutoSelectLastWord(!isEnabled);
+                updateAutoSelectWordButton(!isEnabled);
+                
+                // 显示提示
+                android.widget.Toast.makeText(this, 
+                        "字幕结束时自动选择最后一个单词: " + (!isEnabled ? "开启" : "关闭"), 
+                        android.widget.Toast.LENGTH_SHORT).show();
+                
                 return true;
             }
             
@@ -1178,48 +1233,19 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     }
 
     /**
-     * 显示SMB播放器设置菜单
+     * 更新自动选词按钮状态
      */
-    private void showSettingsMenu() {
-        android.util.Log.d("StandaloneSmbPlayerActivity", "显示设置菜单");
-        
-        // 创建对话框构建器
-        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this);
-        builder.setTitle("SMB播放器设置");
-        
-        // 创建设置项
-        java.util.List<String> items = new java.util.ArrayList<>();
-        java.util.List<Runnable> actions = new java.util.ArrayList<>();
-        
-        // 添加"字幕结束时自动选择最后一个单词"开关
-        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
-                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
-        boolean isAutoSelectLastWordEnabled = playerData.isAutoSelectLastWordEnabled();
-        items.add("字幕结束时自动选择最后一个单词: " + (isAutoSelectLastWordEnabled ? "开启" : "关闭"));
-        actions.add(() -> {
-            // 切换开关状态
-            playerData.enableAutoSelectLastWord(!isAutoSelectLastWordEnabled);
-            // 显示提示
-            android.widget.Toast.makeText(this, 
-                    "字幕结束时自动选择最后一个单词: " + (!isAutoSelectLastWordEnabled ? "开启" : "关闭"), 
-                    android.widget.Toast.LENGTH_SHORT).show();
-        });
-        
-        // 设置点击监听器
-        builder.setItems(items.toArray(new String[0]), (dialog, which) -> {
-            // 执行选择的操作
-            if (which >= 0 && which < actions.size()) {
-                actions.get(which).run();
-            }
-            dialog.dismiss();
-        });
-        
-        // 添加取消按钮
-        builder.setNegativeButton("取消", (dialog, which) -> dialog.dismiss());
-        
-        // 显示对话框
-        android.app.AlertDialog dialog = builder.create();
-        dialog.show();
+    private void updateAutoSelectWordButton(boolean isEnabled) {
+        if (mAutoSelectWordButton != null) {
+            // 根据状态设置不同图标
+            mAutoSelectWordButton.setImageResource(isEnabled ?
+                android.R.drawable.ic_input_get :  // 使用Android自带的一个绿色图标表示开启状态
+                android.R.drawable.ic_dialog_info); // 使用普通信息图标表示关闭状态
+                
+            // 设置不同的背景色
+            mAutoSelectWordButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                isEnabled ? 0xFF4CAF50 : 0x00000000)); // 启用时为绿色，禁用时透明
+        }
     }
 
     /**
