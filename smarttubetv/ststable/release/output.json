@@ -16,24 +16,10 @@
         }
       ],
       "properties": [],
-      "versionCode": 2027,
-      "versionName": "2027",
+      "versionCode": 2032,
+      "versionName": "2032",
       "enabled": true,
-      "outputFile": "SmartTube_stable_28.37_arm64-v8a.apk"
-    },
-    {
-      "type": "ONE_OF_MANY",
-      "filters": [
-        {
-          "filterType": "ABI",
-          "value": "armeabi-v7a"
-        }
-      ],
-      "properties": [],
-      "versionCode": 2027,
-      "versionName": "2027",
-      "enabled": true,
-      "outputFile": "SmartTube_stable_28.37_armeabi-v7a.apk"
+      "outputFile": "SmartTube_stable_28.42_arm64-v8a.apk"
     },
     {
       "type": "ONE_OF_MANY",
@@ -44,10 +30,24 @@
         }
       ],
       "properties": [],
-      "versionCode": 2027,
-      "versionName": "2027",
+      "versionCode": 2032,
+      "versionName": "2032",
       "enabled": true,
-      "outputFile": "SmartTube_stable_28.37_x86.apk"
+      "outputFile": "SmartTube_stable_28.42_x86.apk"
+    },
+    {
+      "type": "ONE_OF_MANY",
+      "filters": [
+        {
+          "filterType": "ABI",
+          "value": "armeabi-v7a"
+        }
+      ],
+      "properties": [],
+      "versionCode": 2032,
+      "versionName": "2032",
+      "enabled": true,
+      "outputFile": "SmartTube_stable_28.42_armeabi-v7a.apk"
     }
   ]
 }
