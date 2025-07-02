@@ -495,6 +495,14 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         android.util.Log.d(TAG, "onKeyDown: keyCode=" + keyCode);
         
+        // 检查并刷新选词控制器状态 - 这是修复核心
+        if (keyCode == KeyEvent.KEYCODE_BACK && mWordSelectionController != null) {
+            // 尝试刷新状态 - 确保状态与实际UI一致
+            mWordSelectionController.refreshStatus();
+            android.util.Log.d(TAG, "返回键：刷新后的选词模式状态: " + 
+                             (mWordSelectionController.isInWordSelectionMode() ? "在选词模式中" : "不在选词模式中"));
+        }
+        
         // 如果是在字幕选词模式下，将事件传递给字幕选词控制器
         if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
             return mWordSelectionController.handleKeyEvent(event);
@@ -679,6 +687,13 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // 在处理返回键事件前，先刷新选词控制器状态
+        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_DOWN && mWordSelectionController != null) {
+            mWordSelectionController.refreshStatus();
+            android.util.Log.d("StandaloneSmbPlayerActivity", "dispatchKeyEvent: 返回键: 刷新后的选词模式状态: " + 
+                             (mWordSelectionController.isInWordSelectionMode() ? "在选词模式中" : "不在选词模式中"));
+        }
+        
         // 首先检查是否在选词模式，优先处理
         if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
             // 特殊处理返回键，确保在自动选词模式下也能正确退出选词模式

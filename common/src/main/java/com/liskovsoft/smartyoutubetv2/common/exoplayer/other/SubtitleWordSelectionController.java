@@ -786,6 +786,49 @@ public class SubtitleWordSelectionController {
     }
     
     /**
+     * 刷新选词控制器状态 - 强制检查当前UI状态判断是否在选词模式
+     */
+    public void refreshStatus() {
+        Log.d(TAG, "刷新选词控制器状态, 当前记录的状态: " + mIsWordSelectionMode);
+        
+        // 检查UI状态确认是否真的在选词模式
+        boolean actualModeFromUI = false;
+        
+        try {
+            // 如果字幕视图中有高亮单词，说明确实在选词模式
+            Field paintersField = mSubtitleView.getClass().getDeclaredField("painters");
+            paintersField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<Object> painters = (List<Object>) paintersField.get(mSubtitleView);
+            
+            if (painters != null && !painters.isEmpty()) {
+                for (Object painter : painters) {
+                    try {
+                        Field highlightWordField = painter.getClass().getDeclaredField("highlightWord");
+                        highlightWordField.setAccessible(true);
+                        Object highlightWord = highlightWordField.get(painter);
+                        
+                        if (highlightWord != null) {
+                            actualModeFromUI = true;
+                            break;
+                        }
+                    } catch (Exception e) {
+                        // 忽略异常
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "检查UI状态失败: " + e.getMessage(), e);
+        }
+        
+        // 如果UI状态与记录状态不一致，则更新记录状态
+        if (actualModeFromUI != mIsWordSelectionMode) {
+            Log.d(TAG, "状态不一致，更新记录状态: " + mIsWordSelectionMode + " -> " + actualModeFromUI);
+            mIsWordSelectionMode = actualModeFromUI;
+        }
+    }
+    
+    /**
      * 清除字幕中的高亮显示
      */
     private void clearSubtitleHighlight() {
@@ -830,6 +873,9 @@ public class SubtitleWordSelectionController {
      * 退出选词模式
      */
     public void exitWordSelectionMode() {
+        // 先刷新状态，确保状态与UI一致
+        refreshStatus();
+        
         if (!mIsWordSelectionMode) {
             Log.d(TAG, "exitWordSelectionMode: 当前不在选词模式，无需退出");
             return;
