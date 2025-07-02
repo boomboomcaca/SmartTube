@@ -36,3 +36,10 @@
 -dontwarn org.slf4j.**
 
 # End Enable minification
+
+# Remove logging in release builds
+-assumenosideeffects class android.util.Log {
+    public static *** d(...);
+    public static *** v(...);
+    public static *** i(...);
+}
