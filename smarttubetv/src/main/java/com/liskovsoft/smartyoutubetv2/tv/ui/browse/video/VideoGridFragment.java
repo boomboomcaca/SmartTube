@@ -240,16 +240,6 @@ public class VideoGridFragment extends GridFragment implements VideoSection {
         return false;
     }
 
-    /**
-     * 设置长按监听器，供子类使用
-     * @param listener 长按监听器
-     */
-    public void setOnItemLongPressListener(OnItemLongPressedListener listener) {
-        if (mCardPresenter != null) {
-            mCardPresenter.setOnItemViewLongPressedListener(listener);
-        }
-    }
-
     private final class ItemViewLongPressedListener implements OnItemLongPressedListener {
         @Override
         public void onItemLongPressed(Presenter.ViewHolder itemViewHolder, Object item) {
