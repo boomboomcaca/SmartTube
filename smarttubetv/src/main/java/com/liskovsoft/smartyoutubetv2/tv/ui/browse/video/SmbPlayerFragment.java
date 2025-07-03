@@ -32,6 +32,7 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
     private ProgressBar mProgressBar;
     private boolean mIsViewCreated = false;
     private KeyEventHandler mKeyEventHandler;
+    private com.liskovsoft.smartyoutubetv2.tv.presenter.VideoCardPresenter mCardPresenter;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -48,8 +49,14 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
         Log.d(TAG, "onCreate");
         mPresenter = SmbPlayerPresenter.instance(getContext());
         
+        // 初始化卡片展示器
+        mCardPresenter = new com.liskovsoft.smartyoutubetv2.tv.presenter.VideoCardPresenter();
+        
         // 创建按键事件处理器
         mKeyEventHandler = new KeyEventHandler();
+        
+        // 设置事件监听器
+        setupEventListeners();
     }
 
     @Override
@@ -63,7 +70,8 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
         setOnItemViewClickedListener(new ItemViewClickedListener());
         
         // 设置长按监听器处理文件删除
-        setOnItemLongPressListener(new ItemViewLongPressedListener());
+        // 修复：不应直接设置长按监听器，而应通过CardPresenter设置
+        // setOnItemLongPressListener(new ItemViewLongPressedListener());
         
         // 创建进度条并添加到视图中
         mProgressBar = new ProgressBar(getContext());
@@ -296,6 +304,15 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
             }
             
             return false;
+        }
+    }
+
+    /**
+     * 设置各种事件监听器
+     */
+    private void setupEventListeners() {
+        if (mCardPresenter != null) {
+            mCardPresenter.setOnItemViewLongPressedListener(new ItemViewLongPressedListener());
         }
     }
 } 
