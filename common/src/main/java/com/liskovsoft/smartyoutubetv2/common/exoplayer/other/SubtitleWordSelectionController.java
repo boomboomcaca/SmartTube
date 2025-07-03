@@ -355,6 +355,12 @@ public class SubtitleWordSelectionController {
         long timeDiff = clickTime - mLastClickTime;
         
         Log.d(TAG, "OK按键详情 - 时间差: " + timeDiff + "ms, 阈值: " + DOUBLE_CLICK_TIME_DELTA + "ms");
+        Log.d(TAG, "OK按键详情 - 当前状态: mIsWordSelectionMode=" + mIsWordSelectionMode + 
+              ", mIsShowingDefinition=" + mIsShowingDefinition + 
+              ", mCurrentWordIndex=" + mCurrentWordIndex + 
+              ", mWords.length=" + mWords.length + 
+              ", mCurrentSubtitleText为空=" + mCurrentSubtitleText.isEmpty() + 
+              ", mLastSubtitleText为空=" + mLastSubtitleText.isEmpty());
         
         mLastClickTime = clickTime;
         
@@ -379,6 +385,39 @@ public class SubtitleWordSelectionController {
             if (System.currentTimeMillis() - mLastClickTime >= DOUBLE_CLICK_TIME_DELTA) {
                 // 单击逻辑
                 if (!mIsShowingDefinition) {
+                    Log.d(TAG, "处理单击OK按键 - 当前未显示定义窗口");
+                    
+                    // 检查是否为自动选词模式下的最后一个单词
+                    boolean isAutoSelectedLastWord = mCurrentWordIndex == mWords.length - 1 && 
+                            mCurrentSubtitleText.isEmpty() && !mLastSubtitleText.isEmpty();
+                    
+                    Log.d(TAG, "是否为自动选词模式下的最后一个单词: " + isAutoSelectedLastWord);
+                    
+                    if (isAutoSelectedLastWord) {
+                        Log.d(TAG, "检测到自动选词模式下的最后一个单词，使用特殊处理");
+                        // 使用上一个字幕文本作为上下文
+                        mCurrentSubtitleText = mLastSubtitleText;
+                        Log.d(TAG, "恢复上下文: mCurrentSubtitleText = " + mCurrentSubtitleText);
+                        
+                        // 刷新单词列表
+                        splitSubtitleIntoWords();
+                        Log.d(TAG, "重新分割单词后的单词数量: " + mWords.length);
+                        
+                        // 确保选中最后一个单词
+                        if (mWords.length > 0) {
+                            mCurrentWordIndex = mWords.length - 1;
+                            highlightCurrentWord();
+                            Log.d(TAG, "重新高亮最后一个单词: " + mWords[mCurrentWordIndex]);
+                        }
+                    } else {
+                        Log.d(TAG, "非自动选词模式或不是最后一个单词，当前单词索引: " + mCurrentWordIndex);
+                        if (mCurrentWordIndex >= 0 && mCurrentWordIndex < mWords.length) {
+                            Log.d(TAG, "当前选中的单词: " + mWords[mCurrentWordIndex]);
+                        }
+                    }
+                    
+                    // 现在翻译单词
+                    Log.d(TAG, "开始翻译单词...");
                     translateCurrentWord();
                 } else {
                     // 切换单词学习状态
@@ -472,20 +511,47 @@ public class SubtitleWordSelectionController {
             if (!mIsWordSelectionMode && 
                     com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(mContext).isAutoSelectLastWordEnabled()) {
                 
-                // 只有当旧字幕不为空且新字幕为空时，才表示字幕结束
-                if (!oldSubtitleText.isEmpty() && mCurrentSubtitleText.isEmpty()) {
-                    Log.d(TAG, "检测到字幕结束且启用了自动选词功能，自动进入选词模式并从最后一个单词开始");
+                Log.d(TAG, "检查是否需要自动选择最后一个单词 - 旧字幕: " + (oldSubtitleText.length() > 50 ? oldSubtitleText.substring(0, 50) + "..." : oldSubtitleText) + 
+                      ", 新字幕: " + (mCurrentSubtitleText.length() > 50 ? mCurrentSubtitleText.substring(0, 50) + "..." : mCurrentSubtitleText));
+                
+                // 修改触发条件：字幕结束或者字幕变化且包含完整句子
+                boolean isSubtitleEnding = !oldSubtitleText.isEmpty() && mCurrentSubtitleText.isEmpty();
+                boolean isCompleteSubtitle = !oldSubtitleText.isEmpty() && 
+                                           (oldSubtitleText.endsWith(".") || 
+                                            oldSubtitleText.endsWith("?") || 
+                                            oldSubtitleText.endsWith("!") ||
+                                            oldSubtitleText.endsWith("。") ||
+                                            oldSubtitleText.endsWith("？") ||
+                                            oldSubtitleText.endsWith("！"));
+                
+                if (isSubtitleEnding || (isSubtitleChanged && isCompleteSubtitle)) {
+                    Log.d(TAG, "检测到字幕" + (isSubtitleEnding ? "结束" : "完整句子") + "且启用了自动选词功能，自动进入选词模式并从最后一个单词开始");
                     
-                    // 暂时保存旧字幕，因为当前字幕已经为空
+                    // 保存要使用的字幕文本
+                    String subtitleToUse = isSubtitleEnding ? oldSubtitleText : mCurrentSubtitleText;
                     String tempSubtitle = mCurrentSubtitleText;
-                    mCurrentSubtitleText = oldSubtitleText;
+                    mCurrentSubtitleText = subtitleToUse;
+                    
+                    // 预处理字幕文本，确保单词分割正确
+                    splitSubtitleIntoWords();
                     
                     // 从最后一个单词开始进入选词模式
-                    enterWordSelectionMode(false);
-                    
-                    // 如果enterWordSelectionMode失败，恢复当前字幕
-                    if (!mIsWordSelectionMode) {
-                        mCurrentSubtitleText = tempSubtitle;
+                    if (mWords.length > 0) {
+                        Log.d(TAG, "找到单词列表，长度: " + mWords.length + "，准备选择最后一个单词");
+                        enterWordSelectionMode(false);
+                        
+                        // 确保选中最后一个单词并高亮显示
+                        if (mIsWordSelectionMode && mWords.length > 0) {
+                            mCurrentWordIndex = mWords.length - 1;
+                            highlightCurrentWord();
+                            Log.d(TAG, "已选中最后一个单词: " + mWords[mCurrentWordIndex]);
+                        }
+                    } else {
+                        Log.d(TAG, "字幕文本中未找到单词，无法进入选词模式");
+                        // 如果enterWordSelectionMode失败，恢复当前字幕
+                        if (!mIsWordSelectionMode) {
+                            mCurrentSubtitleText = tempSubtitle;
+                        }
                     }
                 }
             }
@@ -686,6 +752,59 @@ public class SubtitleWordSelectionController {
      * 翻译当前单词
      */
     private void translateCurrentWord() {
+        Log.d(TAG, "translateCurrentWord被调用 - 当前状态: mIsWordSelectionMode=" + mIsWordSelectionMode + 
+              ", mCurrentWordIndex=" + mCurrentWordIndex + 
+              ", mWords.length=" + (mWords != null ? mWords.length : 0) + 
+              ", mCurrentSubtitleText=" + mCurrentSubtitleText);
+        
+        // 检查是否是自动选词模式下的最后一个单词 - 修改检测逻辑
+        boolean isAutoSelectedLastWord = mCurrentWordIndex == mWords.length - 1 && 
+                !mLastSubtitleText.isEmpty() &&
+                (mCurrentSubtitleText.isEmpty() || // 原始条件：字幕已消失
+                 System.currentTimeMillis() - mLastSubtitleChangeTime < 1000); // 新增条件：字幕刚刚变化
+        
+        Log.d(TAG, "是否为自动选词模式下的最后一个单词: " + isAutoSelectedLastWord + 
+              ", 上次字幕变化时间: " + (System.currentTimeMillis() - mLastSubtitleChangeTime) + "ms前");
+        
+        if (isAutoSelectedLastWord) {
+            Log.d(TAG, "自动选词模式下翻译最后一个单词，使用上一个字幕作为上下文");
+            // 使用上一个字幕文本作为上下文
+            if ((mCurrentSubtitleText.isEmpty() || System.currentTimeMillis() - mLastSubtitleChangeTime < 1000) && 
+                !mLastSubtitleText.isEmpty()) {
+                Log.d(TAG, "设置字幕上下文 - 原始文本: " + mCurrentSubtitleText + 
+                      ", 替换为: " + mLastSubtitleText);
+                mCurrentSubtitleText = mLastSubtitleText;
+                // 重新分割单词以确保上下文正确
+                splitSubtitleIntoWords();
+                if (mWords.length > 0) {
+                    mCurrentWordIndex = mWords.length - 1;
+                    highlightCurrentWord();
+                    Log.d(TAG, "重新高亮最后一个单词: " + mWords[mCurrentWordIndex]);
+                }
+            }
+        }
+        
+        // 确保单词索引有效
+        if (mWords == null || mWords.length == 0) {
+            Log.e(TAG, "无法翻译：单词列表为空");
+            showDefinitionOverlay("无法获取单词信息，请重试", false);
+            return;
+        }
+        
+        if (mCurrentWordIndex < 0 || mCurrentWordIndex >= mWords.length) {
+            Log.e(TAG, "无法翻译：单词索引无效 " + mCurrentWordIndex + "/" + mWords.length);
+            showDefinitionOverlay("单词索引无效，请重试", false);
+            return;
+        }
+        
+        String currentWord = mWords[mCurrentWordIndex];
+        if (currentWord == null || currentWord.trim().isEmpty()) {
+            Log.e(TAG, "无法翻译：当前选中的单词为空");
+            showDefinitionOverlay("无法获取单词内容，请重试", false);
+            return;
+        }
+        
+        Log.d(TAG, "准备翻译单词: " + currentWord + ", 上下文: " + mCurrentSubtitleText);
         mRetryCount = 0;
         translateCurrentWordWithRetry();
     }

@@ -901,6 +901,28 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 
                 android.util.Log.d("StandaloneSmbPlayerActivity", "上下/OK按键按下，显示控制栏");
                 
+                // 特殊处理：如果有字幕且是OK按键，检查是否在自动选词模式下
+                if ((keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) && 
+                    hasSubtitleText() && mWordSelectionController != null) {
+                    
+                    // 刷新选词控制器状态，确保状态一致
+                    mWordSelectionController.refreshStatus();
+                    
+                    // 检查是否在选词模式下
+                    if (mWordSelectionController.isInWordSelectionMode()) {
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "检测到选词模式下的OK按键，直接传递给选词控制器");
+                        boolean handled = mWordSelectionController.handleKeyEvent(event);
+                        if (handled) {
+                            return true;
+                        }
+                    } else if (com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this).isAutoSelectLastWordEnabled()) {
+                        // 如果启用了自动选词但还未进入选词模式，尝试进入选词模式
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "启用了自动选词但未在选词模式，尝试进入选词模式");
+                        enterWordSelectionMode(false); // 从最后一个词开始
+                        return true;
+                    }
+                }
+                
                 // 如果控制栏不可见，则显示控制栏
                 if (!mControlsVisible) {
                     showControls();
