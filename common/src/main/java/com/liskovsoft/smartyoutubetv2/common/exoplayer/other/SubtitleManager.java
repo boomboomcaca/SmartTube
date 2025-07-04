@@ -174,6 +174,7 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                        "inWordSelectionMode=" + (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) + ", " +
                        "wordSelectionActive=" + mWordSelectionActive);
                 
+                // 只有在字幕结束时才执行自动选词
                 if (mHasActiveCues && mPlayerData != null && mPlayerData.isAutoSelectLastWordEnabled() && !mWordSelectionActive) {
                     // 如果控制器未初始化，尝试初始化它
                     if (mWordSelectionController == null && mContext instanceof Activity && mSubtitleView != null) {
@@ -190,7 +191,7 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                     
                     // 确认控制器已初始化且不在选词模式中
                     if (mWordSelectionController != null && !mWordSelectionController.isInWordSelectionMode()) {
-                        Log.d(TAG, "触发自动选词");
+                        Log.d(TAG, "触发自动选词 - 字幕结束时");
                         mWordSelectionActive = true; // 标记选词过程开始，防止重复触发
                         mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
                     } else if (mWordSelectionController == null) {
@@ -759,20 +760,16 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         
         // 停止自动模式
         stopAutoMode();
-        
-        // 进入选词模式
-        if (mWordSelectionController != null) {
-            mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
-        }
     }
 
     /**
      * 处理自动选词
      */
     private void handleAutoWordSelection() {
-        Log.d(TAG, "处理自动选词");
+        Log.d(TAG, "处理字幕结束自动选词");
         
-        if (mWordSelectionController != null) {
+        // 只有在启用了字幕结束自动选词功能时才执行
+        if (mWordSelectionController != null && mPlayerData != null && mPlayerData.isAutoSelectLastWordEnabled()) {
             mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
         }
     }

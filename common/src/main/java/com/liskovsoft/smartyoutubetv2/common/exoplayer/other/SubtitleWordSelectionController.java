@@ -283,16 +283,7 @@ public class SubtitleWordSelectionController {
         refreshStatus();
         
         if (!mIsWordSelectionMode) {
-            // 即使不在选词模式，如果是OK键且有字幕文本，也尝试进入选词模式
-            if ((event.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER || 
-                event.getKeyCode() == KeyEvent.KEYCODE_ENTER) && 
-                event.getAction() == KeyEvent.ACTION_DOWN && 
-                hasSubtitleText()) {
-                
-                Log.d(TAG, "虽然不在选词模式，但有字幕，尝试进入选词模式");
-                enterWordSelectionMode(false); // 从第一个单词开始
-                return true;
-            }
+            // 移除自动进入选词模式的代码
             return false;
         }
         
@@ -315,63 +306,25 @@ public class SubtitleWordSelectionController {
                 Log.d(TAG, "【重要】用户按下方向键，清除自动选择的单词记录: " + mLastAutoSelectedWord);
                 mLastAutoSelectedWord = null;
             }
-        }
-        
-        // 【修改】只有当用户没有手动选择过单词时，才使用自动选择的单词
-        if ((event.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER || 
-            event.getKeyCode() == KeyEvent.KEYCODE_ENTER) && 
-            mLastAutoSelectedWord != null) {
-            
-            // 保存当前单词用于强制高亮
-            mCurrentForcedHighlightWord = mLastAutoSelectedWord;
-            Log.d(TAG, "【关键】OK键按下，强制使用上次自动选择的单词: " + mCurrentForcedHighlightWord);
-            
-            // 强制刷新选词高亮显示
-            if (mWords.length > 0) {
-                // 尝试找到该单词并设置索引
-                boolean foundSaved = false;
-                for (int i = 0; i < mWords.length; i++) {
-                    if (mLastAutoSelectedWord.equals(mWords[i])) {
-                        if (mCurrentWordIndex != i) {
-                            mCurrentWordIndex = i;
-                            Log.d(TAG, "【关键】设置当前索引到之前自动选择的单词位置: " + i);
-                        }
-                        foundSaved = true;
-                        break;
-                    }
-                }
-                
-                // 尝试相似匹配
-                if (!foundSaved) {
-                    String cleanSaved = mLastAutoSelectedWord.replaceAll("[^a-zA-Z0-9\\u4e00-\\u9fa5]", "").toLowerCase().trim();
-                    for (int i = 0; i < mWords.length; i++) {
-                        String cleanWord = mWords[i].replaceAll("[^a-zA-Z0-9\\u4e00-\\u9fa5]", "").toLowerCase().trim();
-                        if (cleanSaved.equals(cleanWord)) {
-                            mCurrentWordIndex = i;
-                            Log.d(TAG, "【关键】通过相似匹配设置索引到自动选择的单词位置: " + i);
-                            foundSaved = true;
-                            break;
-                        }
-                    }
-                }
+            // 同时清除强制高亮单词
+            if (mCurrentForcedHighlightWord != null) {
+                Log.d(TAG, "【重要】用户按下方向键，清除强制高亮单词: " + mCurrentForcedHighlightWord);
+                mCurrentForcedHighlightWord = null;
             }
         }
+        
+        // 删除强制使用自动选择单词的代码
+        // 删除相关的 if 块
         
         // 确保单词列表有效
         if (mWords.length == 0 || mCurrentWordIndex >= mWords.length) {
             Log.d(TAG, "单词列表为空或索引无效，尝试刷新");
             
-            // 保存当前选中的单词优先级顺序：强制单词 > 当前选中单词 > 自动选择单词
+            // 保存当前选中的单词优先级顺序：当前选中单词
             String selectedWord = null;
-            if (mCurrentForcedHighlightWord != null) {
-                selectedWord = mCurrentForcedHighlightWord;
-                Log.d(TAG, "【关键】使用强制高亮单词: " + selectedWord);
-            } else if (mWords.length > 0 && mCurrentWordIndex >= 0 && mCurrentWordIndex < mWords.length) {
+            if (mWords.length > 0 && mCurrentWordIndex >= 0 && mCurrentWordIndex < mWords.length) {
                 selectedWord = mWords[mCurrentWordIndex];
                 Log.d(TAG, "保存当前选中的单词: " + selectedWord + ", 索引: " + mCurrentWordIndex);
-            } else if (mLastAutoSelectedWord != null) {
-                selectedWord = mLastAutoSelectedWord;
-                Log.d(TAG, "【关键】使用上次自动选择的单词: " + selectedWord);
             }
             
             refreshCurrentSubtitle();
@@ -479,14 +432,6 @@ public class SubtitleWordSelectionController {
                 
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
-                // 【直接强制修复】如果不是第一次按键，强制选择最后一个单词
-                if (mWords.length > 0 && System.currentTimeMillis() - mLastSubtitleChangeTime < 5000) {
-                    // 设置索引为最后一个单词
-                    mCurrentWordIndex = mWords.length - 1;
-                    highlightCurrentWord(); // 高亮显示
-                    Log.d(TAG, "【超级强制修复】按下OK键时强制选择最后一个单词: " + 
-                          (mCurrentWordIndex < mWords.length ? mWords[mCurrentWordIndex] : "无效索引"));
-                }
                 return handleCenterKey();
                 
             case KeyEvent.KEYCODE_BACK:

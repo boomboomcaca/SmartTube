@@ -41,36 +41,14 @@ public class PlayerKeyTranslator extends GlobalKeyTranslator {
     private final Runnable volumeUpAction = () -> volumeUp(true);
     private final Runnable volumeDownAction = () -> volumeUp(false);
     private final Runnable leftKeyAction = () -> {
-        // 检查是否已经在选词模式，如果是，不需要再次进入选词模式
+        // 移除自动进入选词模式的代码
         PlaybackPresenter playbackPresenter = getPlaybackPresenter();
-        if (playbackPresenter != null && playbackPresenter.getView() != null) {
-            SubtitleManager subtitleManager = playbackPresenter.getView().getSubtitleManager();
-            if (subtitleManager != null) {
-                SubtitleWordSelectionController controller = subtitleManager.getWordSelectionController();
-                if (controller != null) {
-                    // 如果没有在选词模式且有字幕，则进入选词模式
-                    if (!controller.isInWordSelectionMode() && controller.hasSubtitleText()) {
-                        controller.enterWordSelectionMode(false); // 从最后一个单词开始
-                    }
-                }
-            }
-        }
+        // 在这里可以添加其他按键功能
     };
     private final Runnable rightKeyAction = () -> {
-        // 检查是否已经在选词模式，如果是，不需要再次进入选词模式
+        // 移除自动进入选词模式的代码
         PlaybackPresenter playbackPresenter = getPlaybackPresenter();
-        if (playbackPresenter != null && playbackPresenter.getView() != null) {
-            SubtitleManager subtitleManager = playbackPresenter.getView().getSubtitleManager();
-            if (subtitleManager != null) {
-                SubtitleWordSelectionController controller = subtitleManager.getWordSelectionController();
-                if (controller != null) {
-                    // 如果没有在选词模式且有字幕，则进入选词模式
-                    if (!controller.isInWordSelectionMode() && controller.hasSubtitleText()) {
-                        controller.enterWordSelectionMode(true); // 从第一个单词开始
-                    }
-                }
-            }
-        }
+        // 在这里可以添加其他按键功能
     };
     
     private boolean mIsWordSelectionModeEnabled = false;
@@ -228,16 +206,8 @@ public class PlayerKeyTranslator extends GlobalKeyTranslator {
      * 检查是否有字幕并进入选词模式
      */
     private void checkAndEnterWordSelectionMode() {
-        PlaybackPresenter playbackPresenter = getPlaybackPresenter();
-        if (playbackPresenter != null && playbackPresenter.getView() != null) {
-            SubtitleManager subtitleManager = playbackPresenter.getView().getSubtitleManager();
-            if (subtitleManager != null) {
-                SubtitleWordSelectionController controller = subtitleManager.getWordSelectionController();
-                if (controller != null && controller.hasSubtitleText()) {
-                    controller.enterWordSelectionMode(); // 使用默认参数（从第一个单词开始）
-                }
-            }
-        }
+        // 移除强制进入选词模式的代码
+        // 只保留字幕结束时自动选词功能
     }
     
     /**
