@@ -192,44 +192,12 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                         !mWordSelectionController.isInWordSelectionMode() && 
                         !mWordSelectionActive) { // 添加标志位检查
                     Log.d(TAG, "定时器触发自动选词");
-                    enterWordSelectionModeAndTrack();
+                    mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
                 }
             }
         };
     }
 
-    /**
-     * 进入选词模式并跟踪状态
-     */
-    private void enterWordSelectionModeAndTrack() {
-        // 防止短时间内重复触发
-        long now = System.currentTimeMillis();
-        if (now - mLastSelectionTimeMs < SELECTION_COOLDOWN_MS) {
-            Log.d(TAG, "冷却时间内，忽略选词请求 - 上次触发: " + (now - mLastSelectionTimeMs) + "毫秒前");
-            return;
-        }
-        
-        if (mWordSelectionController != null && !mWordSelectionActive && !mWordSelectionPending) {
-            mWordSelectionPending = true; // 标记选词操作为等待状态
-            
-            // 取消所有可能的后续触发
-            mHandler.removeCallbacks(mAutoSelectWordRunnable);
-            
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    if (!mWordSelectionController.isInWordSelectionMode()) {
-                        mWordSelectionActive = true; // 设置标志位，避免重复触发
-                        mLastSelectionTimeMs = System.currentTimeMillis();
-                        Log.d(TAG, "进入选词模式并标记状态 - 字幕ID: " + mCurrentSubtitleId);
-                        mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
-                    }
-                    mWordSelectionPending = false; // 无论是否成功，都重置等待状态
-                }
-            });
-        }
-    }
-    
     /**
      * 退出选词模式并重置状态
      */
@@ -269,14 +237,18 @@ public class SubtitleManager implements TextOutput, OnDataChange {
             // 改进：在距离结束前0.2秒内触发，增加触发窗口
             if (remainingUs > 0 && remainingUs < 200000) { // 0.2秒内
                 Log.d(TAG, "周期性检查: 字幕即将结束（剩余" + (remainingUs/1000) + "毫秒），触发自动选词");
-                enterWordSelectionModeAndTrack();
+                if (mWordSelectionController != null) {
+                    mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
+                }
             }
         } else if (mIsAutomaticSubtitles) {
             // 自动生成字幕的备用机制
             long elapsedMs = System.currentTimeMillis() - mLastSubtitleChangeTimeMs;
             if (elapsedMs >= BACKUP_TRIGGER_DELAY_MS) {
                 Log.d(TAG, "自动生成字幕备用触发: 字幕显示时间已达" + BACKUP_TRIGGER_DELAY_MS + "毫秒");
-                enterWordSelectionModeAndTrack();
+                if (mWordSelectionController != null) {
+                    mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
+                }
                 // 避免重复触发备用机制
                 mLastSubtitleChangeTimeMs = Long.MAX_VALUE;
             }
@@ -862,6 +834,40 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         if (mPlayer != null) {
             mPlayer.removeTextOutput(this);
             mPlayer = null;
+        }
+    }
+
+    /**
+     * 停止自动模式
+     */
+    private void stopAutoMode() {
+        Log.d(TAG, "停止自动模式");
+        mHandler.removeCallbacks(mAutoSelectWordRunnable);
+    }
+
+    /**
+     * 长按操作处理
+     */
+    private void handleLongPress() {
+        Log.d(TAG, "检测到长按操作");
+        
+        // 停止自动模式
+        stopAutoMode();
+        
+        // 进入选词模式
+        if (mWordSelectionController != null) {
+            mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
+        }
+    }
+
+    /**
+     * 处理自动选词
+     */
+    private void handleAutoWordSelection() {
+        Log.d(TAG, "处理自动选词");
+        
+        if (mWordSelectionController != null) {
+            mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
         }
     }
 }
