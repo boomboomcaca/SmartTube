@@ -18,6 +18,7 @@ import com.liskovsoft.smartyoutubetv2.tv.ui.browse.interfaces.VideoSection;
 import com.liskovsoft.smartyoutubetv2.tv.ui.browse.settings.SettingsGridFragment;
 import com.liskovsoft.smartyoutubetv2.tv.ui.browse.video.MultiVideoGridFragment;
 import com.liskovsoft.smartyoutubetv2.tv.ui.browse.video.ShortsGridFragment;
+import com.liskovsoft.smartyoutubetv2.tv.ui.browse.video.SmbPlayerFragment;
 import com.liskovsoft.smartyoutubetv2.tv.ui.browse.video.VideoGridFragment;
 import com.liskovsoft.smartyoutubetv2.tv.ui.browse.video.VideoRowsFragment;
 
@@ -75,6 +76,9 @@ public class BrowseSectionFragmentFactory extends BrowseSupportFragment.Fragment
                 break;
             case BrowseSection.TYPE_MULTI_GRID:
                 fragment = new MultiVideoGridFragment();
+                break;
+            case BrowseSection.TYPE_SMB_PLAYER:
+                fragment = new SmbPlayerFragment();
                 break;
             case BrowseSection.TYPE_ERROR:
                 fragment = new ErrorDialogFragment((ErrorFragmentData) ((SectionHeaderItem) header).getSection().getData());

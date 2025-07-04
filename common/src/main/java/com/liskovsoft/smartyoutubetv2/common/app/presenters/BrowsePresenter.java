@@ -185,6 +185,7 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         mSectionsMapping.put(MediaGroup.TYPE_SPORTS, new BrowseSection(MediaGroup.TYPE_SPORTS, getContext().getString(R.string.header_sports), BrowseSection.TYPE_ROW, R.drawable.icon_sports));
         mSectionsMapping.put(MediaGroup.TYPE_LIVE, new BrowseSection(MediaGroup.TYPE_LIVE, getContext().getString(R.string.badge_live), BrowseSection.TYPE_ROW, R.drawable.icon_live));
         mSectionsMapping.put(MediaGroup.TYPE_MY_VIDEOS, new BrowseSection(MediaGroup.TYPE_MY_VIDEOS, getContext().getString(R.string.my_videos), BrowseSection.TYPE_GRID, R.drawable.icon_playlist));
+        mSectionsMapping.put(MediaGroup.TYPE_SMB_PLAYER, new BrowseSection(MediaGroup.TYPE_SMB_PLAYER, getContext().getString(R.string.header_smb_player), BrowseSection.TYPE_SMB_PLAYER, R.drawable.icon_smb));
         mSectionsMapping.put(MediaGroup.TYPE_GAMING, new BrowseSection(MediaGroup.TYPE_GAMING, getContext().getString(R.string.header_gaming), BrowseSection.TYPE_ROW, R.drawable.icon_gaming));
         if (!Helpers.equalsAny(country, "RU", "BY")) {
             mSectionsMapping.put(MediaGroup.TYPE_NEWS, new BrowseSection(MediaGroup.TYPE_NEWS, getContext().getString(R.string.header_news), BrowseSection.TYPE_ROW, R.drawable.icon_news));
@@ -453,6 +454,25 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         saveSelectedItems(); // save previous state
         mCurrentSection = findSectionById(sectionId);
         mCurrentVideo = null; // fast scroll through the sections (fix empty selected item)
+        
+        // Special handling for SMB Player section - always reload when focused
+        if (mCurrentSection != null && mCurrentSection.getId() == MediaGroup.TYPE_SMB_PLAYER) {
+            try {
+                Class<?> smbPlayerFragmentClass = Class.forName("com.liskovsoft.smartyoutubetv2.tv.ui.browse.video.SmbPlayerFragment");
+                java.lang.reflect.Method markForReloadMethod = smbPlayerFragmentClass.getDeclaredMethod("markForReload");
+                markForReloadMethod.invoke(null);
+                Log.d(TAG, "onSectionFocused: Marked SMB Player for reload");
+            } catch (Exception e) {
+                Log.e(TAG, "onSectionFocused: Failed to mark SMB Player for reload", e);
+            }
+
+            SmbPlayerPresenter smbPresenter = SmbPlayerPresenter.instance(getContext());
+            if (smbPresenter != null) {
+                Log.d(TAG, "onSectionFocused: Reloading SMB Player content");
+                smbPresenter.loadRootFolder();
+            }
+        }
+        
         updateCurrentSection();
         restoreSelectedItems(); // Don't place anywhere else
     }
@@ -507,6 +527,7 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         enableSection(MediaGroup.TYPE_HOME, enable);
         enableSection(MediaGroup.TYPE_TRENDING, enable);
         enableSection(MediaGroup.TYPE_SHORTS, enable);
+        enableSection(MediaGroup.TYPE_SMB_PLAYER, enable);
     }
 
     public void enableSection(int sectionId, boolean enable) {
@@ -617,6 +638,9 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
             case BrowseSection.TYPE_MULTI_GRID:
                 Observable<MediaGroup> group2 = mGridMapping.get(section.getId());
                 updateVideoGrid(section, group2, 0, section.isAuthOnly());
+                break;
+            case BrowseSection.TYPE_SMB_PLAYER:
+                SmbPlayerPresenter.instance(getContext()).openView();
                 break;
             case BrowseSection.TYPE_ERROR:
                 getView().showProgressBar(false);
