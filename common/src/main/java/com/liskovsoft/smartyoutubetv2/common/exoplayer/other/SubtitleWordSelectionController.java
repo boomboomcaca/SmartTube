@@ -308,7 +308,16 @@ public class SubtitleWordSelectionController {
             return true;
         }
         
-        // 【核心修改】先检查是否是关键按键（确定键），如果是且有自动选择的单词，则直接使用
+        // 【修改】当用户按下左右方向键时，清除mLastAutoSelectedWord，表示用户已手动选择单词
+        if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT || 
+            event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            if (mLastAutoSelectedWord != null) {
+                Log.d(TAG, "【重要】用户按下方向键，清除自动选择的单词记录: " + mLastAutoSelectedWord);
+                mLastAutoSelectedWord = null;
+            }
+        }
+        
+        // 【修改】只有当用户没有手动选择过单词时，才使用自动选择的单词
         if ((event.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER || 
             event.getKeyCode() == KeyEvent.KEYCODE_ENTER) && 
             mLastAutoSelectedWord != null) {
@@ -504,14 +513,25 @@ public class SubtitleWordSelectionController {
             return true;
         }
         
-        // 处理自动选词情况：如果字幕已消失但有上一个字幕，使用上一个字幕和最后一个单词
-        restoreSubtitleContextIfNeeded();
+        // 保存当前索引，以便后续使用
+        final int savedWordIndex = mCurrentWordIndex;
+        Log.d(TAG, "【重写】handleCenterKey: 保存当前单词索引 = " + savedWordIndex);
         
-        // 确保索引有效
+        // 处理自动选词情况：如果字幕已消失但有上一个字幕，使用上一个字幕
+        boolean contextRestored = restoreSubtitleContextIfNeeded();
+        
+        // 如果上下文被恢复，尝试恢复原始索引
+        if (contextRestored && savedWordIndex >= 0 && savedWordIndex < mWords.length) {
+            mCurrentWordIndex = savedWordIndex;
+            Log.d(TAG, "【重写】handleCenterKey: 上下文恢复后重置索引为 = " + mCurrentWordIndex);
+        }
+        
+        // 确保索引有效，但不要自动跳转到第一个或最后一个单词
         if (mCurrentWordIndex < 0 || mCurrentWordIndex >= mWords.length) {
             if (mWords.length > 0) {
-                mCurrentWordIndex = mWords.length - 1; // 始终默认使用最后一个单词
-                Log.d(TAG, "【重写】handleCenterKey: 修正无效索引，使用最后一个单词 = " + mWords[mCurrentWordIndex]);
+                // 使用第一个单词作为默认值，但只在必要时使用
+                mCurrentWordIndex = 0;
+                Log.d(TAG, "【重写】handleCenterKey: 修正无效索引，使用第一个单词 = " + mWords[mCurrentWordIndex]);
             } else {
                 Log.d(TAG, "【重写】handleCenterKey: 单词列表为空或索引无效，无法继续");
                 return true;
@@ -546,6 +566,7 @@ public class SubtitleWordSelectionController {
         }
         
         // 单击处理 - 延迟执行，以便能检测双击
+        final int finalWordIndex = mCurrentWordIndex; // 捕获当前索引
         mHandler.postDelayed(() -> {
             if (System.currentTimeMillis() - mLastClickTime >= DOUBLE_CLICK_TIME_DELTA) {
                 Log.d(TAG, "【重写】handleCenterKey: 执行单击操作");
@@ -556,6 +577,11 @@ public class SubtitleWordSelectionController {
                     return;
                 }
                 
+                // 确保使用保存的索引
+                if (finalWordIndex >= 0 && finalWordIndex < mWords.length) {
+                    mCurrentWordIndex = finalWordIndex;
+                }
+                
                 // 否则翻译当前单词
                 Log.d(TAG, "【重写】handleCenterKey: 翻译当前单词，索引 = " + mCurrentWordIndex + 
                       ", 单词 = " + (mCurrentWordIndex < mWords.length ? mWords[mCurrentWordIndex] : "无效"));
@@ -563,12 +589,59 @@ public class SubtitleWordSelectionController {
                 // 重新高亮当前单词，确保UI状态一致
                 highlightCurrentWord();
                 
-                // 翻译单词
-                translateCurrentWord();
+                // 不要在这里调用restoreSubtitleContextIfNeeded，避免重复处理
+                // 直接翻译当前单词
+                translateCurrentWordDirectly();
             }
         }, DOUBLE_CLICK_TIME_DELTA);
         
         return true;
+    }
+    
+    /**
+     * 直接翻译当前单词（不尝试恢复上下文）
+     */
+    private void translateCurrentWordDirectly() {
+        Log.d(TAG, "【重写】translateCurrentWordDirectly: 开始直接翻译单词");
+        
+        // 确保单词列表和索引有效
+        if (mWords == null || mWords.length == 0) {
+            Log.e(TAG, "【重写】translateCurrentWordDirectly: 单词列表为空，无法翻译");
+            showDefinitionOverlay("无法获取单词信息，请重试", false);
+            return;
+        }
+        
+        // 确保索引有效
+        if (mCurrentWordIndex < 0 || mCurrentWordIndex >= mWords.length) {
+            if (mWords.length > 0) {
+                // 使用第一个单词而不是最后一个单词
+                mCurrentWordIndex = 0;
+                Log.d(TAG, "【重写】translateCurrentWordDirectly: 修正无效索引为第一个单词，索引 = " + mCurrentWordIndex);
+                highlightCurrentWord();
+            } else {
+                Log.e(TAG, "【重写】translateCurrentWordDirectly: 无法获取有效单词");
+                showDefinitionOverlay("无法获取有效单词，请重试", false);
+                return;
+            }
+        }
+        
+        // 获取要翻译的单词
+        String wordToTranslate = mWords[mCurrentWordIndex];
+        
+        if (wordToTranslate == null || wordToTranslate.trim().isEmpty()) {
+            Log.e(TAG, "【重写】translateCurrentWordDirectly: 选中的单词为空");
+            showDefinitionOverlay("无法获取单词内容，请重试", false);
+            return;
+        }
+        
+        Log.d(TAG, "【重写】translateCurrentWordDirectly: 准备翻译单词 = " + wordToTranslate + 
+              ", 字幕上下文 = " + mCurrentSubtitleText);
+        
+        // 重置重试计数
+        mRetryCount = 0;
+        
+        // 开始翻译
+        translateCurrentWordWithRetry();
     }
     
     /**
@@ -764,6 +837,12 @@ public class SubtitleWordSelectionController {
     private void selectNextWord() {
         mTTSService.deleteCurrentAudioFile();
         
+        // 清除自动选择的单词记录，因为用户正在手动选择单词
+        if (mLastAutoSelectedWord != null) {
+            Log.d(TAG, "【重要】用户手动选择下一个单词，清除自动选择的单词记录: " + mLastAutoSelectedWord);
+            mLastAutoSelectedWord = null;
+        }
+        
         if (mWords.length > 0) {
             mCurrentWordIndex = (mCurrentWordIndex + 1) % mWords.length;
             Log.d(TAG, "选择下一个单词: " + mWords[mCurrentWordIndex] + " 索引: " + mCurrentWordIndex);
@@ -776,6 +855,12 @@ public class SubtitleWordSelectionController {
      */
     private void selectPreviousWord() {
         mTTSService.deleteCurrentAudioFile();
+        
+        // 清除自动选择的单词记录，因为用户正在手动选择单词
+        if (mLastAutoSelectedWord != null) {
+            Log.d(TAG, "【重要】用户手动选择上一个单词，清除自动选择的单词记录: " + mLastAutoSelectedWord);
+            mLastAutoSelectedWord = null;
+        }
         
         if (mWords.length > 0) {
             mCurrentWordIndex = (mCurrentWordIndex - 1 + mWords.length) % mWords.length;
@@ -804,10 +889,24 @@ public class SubtitleWordSelectionController {
         String currentWord = mWords[mCurrentWordIndex];
         mLastHighlightedWord = currentWord;
         
-        if (mCurrentWordIndex == mWords.length - 1) {
-            // 如果是最后一个单词，特别标记它
+        // 【修改】只有在自动选词模式下才更新mLastAutoSelectedWord
+        // 检查是否是由自动选词功能触发的高亮操作
+        boolean isAutoSelection = false;
+        
+        // 通过调用栈分析是否是自动选词
+        StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+        for (StackTraceElement element : stackTrace) {
+            // 检查是否是从setCurrentSubtitleText方法调用的
+            if (element.getMethodName().equals("setCurrentSubtitleText")) {
+                isAutoSelection = true;
+                break;
+            }
+        }
+        
+        if (mCurrentWordIndex == mWords.length - 1 && isAutoSelection) {
+            // 只有在自动选词模式下且是最后一个单词时，才更新mLastAutoSelectedWord
             mLastAutoSelectedWord = currentWord;
-            Log.d(TAG, "【重写】高亮最后一个单词: " + currentWord);
+            Log.d(TAG, "【重写】自动选词模式下高亮最后一个单词: " + currentWord);
         }
         
         // 使用原始的高亮逻辑
@@ -869,13 +968,18 @@ public class SubtitleWordSelectionController {
     }
     
     /**
-     * 恢复字幕上下文并重新定位到最后一个单词
+     * 恢复字幕上下文并尝试保持当前单词索引
      * 当用户按下OK键时，字幕可能已经消失，此方法确保我们能正确恢复上下文
+     * @return 是否进行了恢复操作
      */
     private boolean restoreSubtitleContextIfNeeded() {
         // 如果当前字幕为空但上一个字幕不为空，恢复上下文
         if (mCurrentSubtitleText.isEmpty() && !mLastSubtitleText.isEmpty()) {
             Log.d(TAG, "【重写】恢复字幕上下文");
+            
+            // 保存当前索引
+            int savedIndex = mCurrentWordIndex;
+            Log.d(TAG, "【重写】恢复前保存索引: " + savedIndex);
             
             // 恢复字幕文本
             mCurrentSubtitleText = mLastSubtitleText;
@@ -885,11 +989,20 @@ public class SubtitleWordSelectionController {
             splitSubtitleIntoWords();
             Log.d(TAG, "【重写】重新分词后单词数量: " + mWords.length);
             
-            // 自动选择最后一个单词
+            // 恢复原来选中的单词索引，如果索引无效则使用有效范围内的索引
             if (mWords.length > 0) {
-                mCurrentWordIndex = mWords.length - 1;
-                Log.d(TAG, "【重写】恢复后自动选择最后一个单词: " + mWords[mCurrentWordIndex]);
-                highlightCurrentWord();
+                if (savedIndex >= 0 && savedIndex < mWords.length) {
+                    // 保持原有索引
+                    mCurrentWordIndex = savedIndex;
+                    Log.d(TAG, "【重写】恢复后保持原有单词索引: " + mCurrentWordIndex + ", 单词: " + mWords[mCurrentWordIndex]);
+                } else {
+                    // 索引无效时，使用合理的默认值（第一个单词）
+                    mCurrentWordIndex = 0;
+                    Log.d(TAG, "【重写】恢复后使用第一个单词: " + mWords[mCurrentWordIndex]);
+                }
+                
+                // 注意：这里不自动高亮单词，由调用方决定是否需要高亮
+                // 这样可以避免在多处调用该方法时出现重复高亮的问题
                 return true;
             }
         }
@@ -910,14 +1023,26 @@ public class SubtitleWordSelectionController {
             return;
         }
         
+        // 保存当前索引，以便后续恢复
+        final int savedWordIndex = mCurrentWordIndex;
+        Log.d(TAG, "【重写】translateCurrentWord: 保存当前单词索引 = " + savedWordIndex);
+        
         // 处理字幕为空的情况
-        restoreSubtitleContextIfNeeded();
+        boolean contextRestored = restoreSubtitleContextIfNeeded();
+        
+        // 如果上下文被恢复，尝试恢复原始索引
+        if (contextRestored && savedWordIndex >= 0 && savedWordIndex < mWords.length) {
+            mCurrentWordIndex = savedWordIndex;
+            Log.d(TAG, "【重写】translateCurrentWord: 上下文恢复后重置索引为 = " + mCurrentWordIndex);
+            highlightCurrentWord();
+        }
         
         // 确保索引有效
         if (mCurrentWordIndex < 0 || mCurrentWordIndex >= mWords.length) {
             if (mWords.length > 0) {
-                mCurrentWordIndex = mWords.length - 1; // 设为最后一个单词
-                Log.d(TAG, "【重写】translateCurrentWord: 修正无效索引为最后一个单词，索引 = " + mCurrentWordIndex);
+                // 使用第一个单词而不是最后一个单词
+                mCurrentWordIndex = 0;
+                Log.d(TAG, "【重写】translateCurrentWord: 修正无效索引为第一个单词，索引 = " + mCurrentWordIndex);
                 highlightCurrentWord();
             } else {
                 Log.e(TAG, "【重写】translateCurrentWord: 无法获取有效单词");
