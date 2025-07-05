@@ -21,6 +21,7 @@ import com.liskovsoft.smartyoutubetv2.tv.ui.playback.mod.surface.SurfacePlayback
  *  Fixing that for keys.
  */
 public class EventsOverridePlaybackFragment extends SurfacePlaybackFragment {
+    private static final String TAG = "EventsOverridePlaybackFragment";
     private PlayerKeyTranslator mKeyTranslator;
     
     @Override
@@ -53,17 +54,31 @@ public class EventsOverridePlaybackFragment extends SurfacePlaybackFragment {
         if (event instanceof KeyEvent) {
             keyCode = ((KeyEvent) event).getKeyCode();
             keyAction = ((KeyEvent) event).getAction();
+            android.util.Log.d(TAG, "onInterceptInputEvent: 按键=" + keyCode + ", 动作=" + keyAction + ", 控制栏隐藏=" + controlsHidden);
             
             // 当工具栏显示时，对于上下左右键，不拦截事件，恢复默认功能
             if (!controlsHidden && (keyCode == KeyEvent.KEYCODE_DPAD_UP || 
                                     keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
                                     keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
                                     keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                android.util.Log.d(TAG, "控制栏可见，不拦截上下左右键");
                 return false;
+            }
+            
+            // 如果是左右方向键且动作是按下
+            if ((keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) && 
+                keyAction == KeyEvent.ACTION_DOWN) {
+                // 调用专门处理左右键的方法
+                boolean handled = handleLeftRightKeyDown((KeyEvent) event);
+                if (handled) {
+                    android.util.Log.d(TAG, "左右键已被处理");
+                    return true;
+                }
             }
             
             // 只有当工具栏隐藏时，才检查是否在选词模式下
             if (controlsHidden && event instanceof KeyEvent && mKeyTranslator != null && mKeyTranslator.handleSubtitleWordSelectionKeyEvent((KeyEvent) event)) {
+                android.util.Log.d(TAG, "选词模式处理按键");
                 return true;
             }
             
@@ -134,6 +149,85 @@ public class EventsOverridePlaybackFragment extends SurfacePlaybackFragment {
     private boolean isInSeek() {
         Object mInSeek = Helpers.getField(this, "mInSeek");
         return mInSeek != null && (boolean) mInSeek;
+    }
+
+    /**
+     * 检查是否有字幕文本
+     */
+    private boolean hasSubtitleText() {
+        try {
+            SubtitleManager subtitleManager = getSubtitleManager();
+            if (subtitleManager != null) {
+                // 首先检查字幕控制器
+                SubtitleWordSelectionController controller = subtitleManager.getWordSelectionController();
+                if (controller != null) {
+                    boolean hasText = controller.hasSubtitleText();
+                    android.util.Log.d(TAG, "通过WordSelectionController检查字幕: " + hasText);
+                    return hasText;
+                }
+                
+                // 如果没有控制器或控制器返回false，检查字幕管理器是否存在
+                if (subtitleManager != null) {
+                    // 如果字幕管理器存在，假定有字幕
+                    android.util.Log.d(TAG, "找到字幕管理器，假定有字幕");
+                    return true;
+                }
+            }
+            
+            android.util.Log.d(TAG, "未找到字幕");
+            return false;
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "检查字幕时出错", e);
+            return false;
+        }
+    }
+    
+    /**
+     * 处理左右方向键按下事件
+     */
+    private boolean handleLeftRightKeyDown(KeyEvent event) {
+        try {
+            int keyCode = event.getKeyCode();
+            android.util.Log.d(TAG, "处理左右方向键: " + keyCode + ", 控制栏隐藏: " + !isControlsOverlayVisible());
+            
+            // 如果控制栏可见，不处理左右键
+            if (isControlsOverlayVisible()) {
+                android.util.Log.d(TAG, "控制栏可见，不处理左右键");
+                return false;
+            }
+            
+            // 检查是否有字幕
+            boolean hasSubtitles = hasSubtitleText();
+            android.util.Log.d(TAG, "有字幕: " + hasSubtitles);
+            
+            if (!hasSubtitles) {
+                return false;
+            }
+            
+            // 检查是否已经在选词模式
+            SubtitleManager subtitleManager = getSubtitleManager();
+            if (subtitleManager != null) {
+                SubtitleWordSelectionController controller = subtitleManager.getWordSelectionController();
+                if (controller != null) {
+                    // 如果已经在选词模式，直接处理按键
+                    if (controller.isInWordSelectionMode()) {
+                        android.util.Log.d(TAG, "已在选词模式，交给选词控制器处理");
+                        return controller.handleKeyEvent(event);
+                    }
+                    
+                    // 如果不在选词模式，进入选词模式
+                    android.util.Log.d(TAG, "进入选词模式");
+                    boolean fromStart = (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT); // 左键从最后一个词开始，右键从第一个词开始
+                    controller.enterWordSelectionMode(fromStart);
+                    return true;
+                }
+            }
+            
+            return false;
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "处理左右键时出错", e);
+            return false;
+        }
     }
 
     /**

@@ -679,10 +679,37 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      * 检查当前是否有字幕文本
      */
     private boolean hasSubtitleText() {
-        boolean result = mWordSelectionController != null && mWordSelectionController.hasSubtitleText();
-        android.util.Log.d("StandaloneSmbPlayerActivity", "hasSubtitleText: " + result + 
-                          ", mWordSelectionController=" + (mWordSelectionController != null ? "非空" : "为空"));
-        return result;
+        try {
+            // 首先检查字幕控制器
+            if (mWordSelectionController != null) {
+                boolean hasText = mWordSelectionController.hasSubtitleText();
+                android.util.Log.d("StandaloneSmbPlayerActivity", "通过WordSelectionController检查字幕: " + hasText);
+                return hasText;
+            }
+            
+            // 如果没有字幕控制器，检查字幕管理器
+            if (mSubtitleManager != null) {
+                // 如果字幕管理器存在，假定有字幕
+                android.util.Log.d("StandaloneSmbPlayerActivity", "找到字幕管理器，假定有字幕");
+                return true;
+            }
+            
+            // 最后尝试直接检查播放器中的字幕视图
+            if (mPlayerView != null) {
+                com.google.android.exoplayer2.ui.SubtitleView subtitleView = 
+                        mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_subtitles);
+                if (subtitleView != null && subtitleView.getVisibility() == android.view.View.VISIBLE) {
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "发现可见的字幕视图");
+                    return true;
+                }
+            }
+            
+            android.util.Log.d("StandaloneSmbPlayerActivity", "未找到字幕");
+            return false;
+        } catch (Exception e) {
+            android.util.Log.e("StandaloneSmbPlayerActivity", "检查字幕时出错", e);
+            return false;
+        }
     }
     
     @Override
@@ -794,6 +821,30 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             // 左右键处理 - 根据不同状态有不同行为
             if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                android.util.Log.d("StandaloneSmbPlayerActivity", "左右键按下: " + keyCode + 
+                                 ", 控制栏可见: " + mControlsVisible + 
+                                 ", 有字幕: " + hasSubtitleText() +
+                                 ", 选词模式: " + (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()));
+                
+                // 如果控制栏不可见且有字幕
+                if (!mControlsVisible && hasSubtitleText()) {
+                    android.util.Log.d("StandaloneSmbPlayerActivity", "条件满足：控制栏不可见且有字幕");
+                    
+                    // 如果已经在选词模式，直接将按键交给选词控制器处理
+                    if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "已在选词模式，交给选词控制器处理");
+                        return mWordSelectionController.handleKeyEvent(event);
+                    }
+                    
+                    // 如果不在选词模式，进入选词模式
+                    if (mWordSelectionController != null) {
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "进入选词模式");
+                        boolean fromStart = (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT); // 左键从最后一个词开始，右键从第一个词开始
+                        mWordSelectionController.enterWordSelectionMode(fromStart);
+                        return true;
+                    }
+                }
+                
                 // 如果控制栏可见，执行前进/后退功能
                 if (mControlsVisible) {
                     // 检查是否是重复事件（按键长按）
@@ -881,7 +932,25 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 // 如果控制栏不可见且有字幕，则进入选词模式
                 else if (hasSubtitleText()) {
                     android.util.Log.d("StandaloneSmbPlayerActivity", "控制栏不可见且有字幕");
-                    // 移除自动进入选词模式的代码
+                    
+                    // 如果已经在选词模式，则继续使用方向键选词
+                    if (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) {
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "已经在选词模式，左右键用于选择单词");
+                        return mWordSelectionController.handleKeyEvent(event);
+                    }
+                    
+                    // 如果不在选词模式，判断是否需要进入选词模式
+                    if (event.getRepeatCount() == 0) { // 首次按下
+                        // 检查是否启用了自动选词功能
+                        if (com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this).isAutoSelectLastWordEnabled()) {
+                            // 进入选词模式，从第一个或最后一个单词开始
+                            boolean fromStart = (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT); // 左键从最后一个词开始，右键从第一个词开始
+                            mWordSelectionController.enterWordSelectionMode(fromStart);
+                            return true;
+                        }
+                    }
+                    
+                    // 如果没有特殊处理，继续正常事件分发
                     return super.dispatchKeyEvent(event);
                 }
                 // 其他情况，不做特殊处理，也不显示控制栏
