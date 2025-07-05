@@ -174,8 +174,10 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                        "inWordSelectionMode=" + (mWordSelectionController != null && mWordSelectionController.isInWordSelectionMode()) + ", " +
                        "wordSelectionActive=" + mWordSelectionActive);
                 
-                // 只有在字幕结束时才执行自动选词
-                if (mHasActiveCues && mPlayerData != null && mPlayerData.isAutoSelectLastWordEnabled() && !mWordSelectionActive) {
+                // 只有在确实有字幕且字幕即将结束时才执行自动选词
+                if (mHasActiveCues && mCurrentSubtitleText != null && mPlayerData != null && 
+                    mPlayerData.isAutoSelectLastWordEnabled() && !mWordSelectionActive) {
+                    
                     // 如果控制器未初始化，尝试初始化它
                     if (mWordSelectionController == null && mContext instanceof Activity && mSubtitleView != null) {
                         try {
@@ -189,8 +191,26 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                         }
                     }
                     
-                    // 确认控制器已初始化且不在选词模式中
-                    if (mWordSelectionController != null && !mWordSelectionController.isInWordSelectionMode()) {
+                    // 再次检查是否真的有字幕文本
+                    boolean reallyHasSubtitle = false;
+                    try {
+                        if (mSubtitleView != null) {
+                            List<Cue> currentCues = mSubtitleView.getCues();
+                            if (currentCues != null && !currentCues.isEmpty()) {
+                                for (Cue cue : currentCues) {
+                                    if (cue != null && cue.text != null && !cue.text.toString().trim().isEmpty()) {
+                                        reallyHasSubtitle = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "检查实际字幕文本时出错", e);
+                    }
+                    
+                    // 确认控制器已初始化、不在选词模式中，且真的有字幕
+                    if (mWordSelectionController != null && !mWordSelectionController.isInWordSelectionMode() && reallyHasSubtitle) {
                         Log.d(TAG, "触发自动选词 - 字幕结束时");
                         mWordSelectionActive = true; // 标记选词过程开始，防止重复触发
                         mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
@@ -198,6 +218,8 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                         Log.e(TAG, "无法执行自动选词：字幕选词控制器未初始化");
                     } else if (mWordSelectionController.isInWordSelectionMode()) {
                         Log.d(TAG, "已经在选词模式中，无需再次触发自动选词");
+                    } else if (!reallyHasSubtitle) {
+                        Log.d(TAG, "实际检查确认没有字幕文本，取消自动选词");
                     }
                 } else {
                     Log.d(TAG, "不满足自动选词条件，取消操作");
