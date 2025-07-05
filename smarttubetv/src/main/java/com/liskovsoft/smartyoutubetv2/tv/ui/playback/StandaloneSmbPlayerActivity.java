@@ -1038,20 +1038,22 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         if (mIsLongPress) {
             android.util.Log.d("StandaloneSmbPlayerActivity", "取消长按状态");
             mIsLongPress = false;
-            mLongPressStepIndex = 0; // 重置步长索引
-            mLastStepChangeTime = 0; // 重置步进变化时间
-
-            // 移除长按处理器中的任何挂起任务
-            mLongPressHandler.removeCallbacksAndMessages(null);
-
-            // 重置跳转进度标志，以便可以立即执行新的操作
-            mSeekInProgress = false;
         }
 
-        // 即使不在长按状态，也移除所有挂起的任务
-        if (mLongPressRunnable != null) {
-            mLongPressHandler.removeCallbacks(mLongPressRunnable);
+        // 移除长按处理器中的任务
+        try {
+            if (mLongPressHandler != null && mLongPressRunnable != null) {
+                mLongPressHandler.removeCallbacks(mLongPressRunnable);
+                android.util.Log.d("StandaloneSmbPlayerActivity", "已移除长按任务");
+            }
+        } catch (Exception e) {
+            android.util.Log.e("StandaloneSmbPlayerActivity", "取消长按时出错", e);
         }
+
+        // 重置相关变量
+        mLongPressStartTime = 0;
+        mLongPressStepIndex = 0;
+        mLongPressRepeatCount = 0;
     }
 
     /**
@@ -1062,6 +1064,13 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             // 如果有跳转操作正在进行中，忽略此次调用
             if (mSeekInProgress) {
                 android.util.Log.d("StandaloneSmbPlayerActivity", "上一个后退操作尚未完成，忽略此次操作");
+                return;
+            }
+            
+            // 检查播放器是否可用
+            if (mPresenter == null || !mPresenter.hasExoPlayer()) {
+                android.util.Log.e("StandaloneSmbPlayerActivity", "无法执行后退操作：播放器未初始化");
+                MessageHelpers.showMessage(this, "播放器未初始化");
                 return;
             }
 
@@ -1085,34 +1094,87 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             long actualJumpMs = position - newPosition;
 
             // 设置新位置
-            mPresenter.setPositionMs(newPosition);
+            try {
+                mPresenter.setPositionMs(newPosition);
+            } catch (IllegalStateException e) {
+                android.util.Log.e("StandaloneSmbPlayerActivity", "设置位置时出错", e);
+                MessageHelpers.showMessage(this, "播放错误: " + e.getMessage());
+                mSeekInProgress = false;
+                return;
+            }
 
             // 验证跳转是否成功
             mHandler.postDelayed(() -> {
-                long currentPos = mPresenter.getPositionMs();
-                boolean isSuccessful = Math.abs(currentPos - newPosition) <= 1000; // 如果差异在1秒内视为成功
+                try {
+                    if (mPresenter == null || !mPresenter.hasExoPlayer()) {
+                        android.util.Log.e("StandaloneSmbPlayerActivity", "验证跳转失败：播放器已释放");
+                        mSeekInProgress = false;
+                        return;
+                    }
+                    
+                    long currentPos = mPresenter.getPositionMs();
+                    boolean isSuccessful = Math.abs(currentPos - newPosition) <= 1000; // 如果差异在1秒内视为成功
 
-                if (!isSuccessful) {
-                    android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作验证失败: 期望位置=" +
-                            newPosition + "ms, 实际位置=" + currentPos + "ms, 差异=" +
-                            Math.abs(currentPos - newPosition) + "ms");
+                    if (!isSuccessful) {
+                        android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作验证失败: 期望位置=" +
+                                newPosition + "ms, 实际位置=" + currentPos + "ms, 差异=" +
+                                Math.abs(currentPos - newPosition) + "ms");
 
-                    // 再次尝试设置位置
-                    mPresenter.setPositionMs(newPosition);
-
-                    // 延迟再次验证
-                    mHandler.postDelayed(() -> {
-                        long verifiedPos = mPresenter.getPositionMs();
-                        // 无论成功与否，都更新UI，但记录日志
-                        if (Math.abs(verifiedPos - newPosition) > 1000) {
-                            android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作二次验证仍然失败");
-                        } else {
-                            android.util.Log.d("StandaloneSmbPlayerActivity", "后退操作二次验证成功");
+                        // 再次尝试设置位置
+                        try {
+                            mPresenter.setPositionMs(newPosition);
+                        } catch (IllegalStateException e) {
+                            android.util.Log.e("StandaloneSmbPlayerActivity", "二次设置位置时出错", e);
+                            mSeekInProgress = false;
+                            return;
                         }
 
-                        // 更新UI显示
-                        updatePosition(verifiedPos);
-                        updateSeekBarForPosition(verifiedPos);
+                        // 延迟再次验证
+                        mHandler.postDelayed(() -> {
+                            try {
+                                if (mPresenter == null || !mPresenter.hasExoPlayer()) {
+                                    android.util.Log.e("StandaloneSmbPlayerActivity", "二次验证失败：播放器已释放");
+                                    mSeekInProgress = false;
+                                    return;
+                                }
+                                
+                                long verifiedPos = mPresenter.getPositionMs();
+                                // 无论成功与否，都更新UI，但记录日志
+                                if (Math.abs(verifiedPos - newPosition) > 1000) {
+                                    android.util.Log.e("StandaloneSmbPlayerActivity", "后退操作二次验证仍然失败");
+                                } else {
+                                    android.util.Log.d("StandaloneSmbPlayerActivity", "后退操作二次验证成功");
+                                }
+
+                                // 更新UI显示
+                                updatePosition(verifiedPos);
+                                updateSeekBarForPosition(verifiedPos);
+
+                                // 重置跳转进度标记
+                                mSeekInProgress = false;
+
+                                // 如果仍处于长按状态，立即执行下一次操作
+                                if (mIsLongPress) {
+                                    // 检查是否需要更新步进级别
+                                    checkAndUpdateSeekStepIndex();
+
+                                    // 获取当前步长
+                                    long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
+
+                                    // 立即继续后退操作
+                                    seekBackwardWithStep(currentStepMs);
+                                }
+                            } catch (Exception e) {
+                                android.util.Log.e("StandaloneSmbPlayerActivity", "后退二次验证时发生异常", e);
+                                mSeekInProgress = false;
+                            }
+                        }, 100);
+                    } else {
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "后退操作验证成功: 位置已正确设置");
+
+                        // 操作成功，更新UI显示
+                        updatePosition(currentPos);
+                        updateSeekBarForPosition(currentPos);
 
                         // 重置跳转进度标记
                         mSeekInProgress = false;
@@ -1128,28 +1190,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                             // 立即继续后退操作
                             seekBackwardWithStep(currentStepMs);
                         }
-                    }, 100);
-                } else {
-                    android.util.Log.d("StandaloneSmbPlayerActivity", "后退操作验证成功: 位置已正确设置");
-
-                    // 操作成功，更新UI显示
-                    updatePosition(currentPos);
-                    updateSeekBarForPosition(currentPos);
-
-                    // 重置跳转进度标记
-                    mSeekInProgress = false;
-
-                    // 如果仍处于长按状态，立即执行下一次操作
-                    if (mIsLongPress) {
-                        // 检查是否需要更新步进级别
-                        checkAndUpdateSeekStepIndex();
-
-                        // 获取当前步长
-                        long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
-
-                        // 立即继续后退操作
-                        seekBackwardWithStep(currentStepMs);
                     }
+                } catch (Exception e) {
+                    android.util.Log.e("StandaloneSmbPlayerActivity", "后退验证时发生异常", e);
+                    mSeekInProgress = false;
                 }
             }, 200);
         } catch (Exception e) {
@@ -1192,6 +1236,13 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 android.util.Log.d("StandaloneSmbPlayerActivity", "上一个前进操作尚未完成，忽略此次操作");
                 return;
             }
+            
+            // 检查播放器是否可用
+            if (mPresenter == null || !mPresenter.hasExoPlayer()) {
+                android.util.Log.e("StandaloneSmbPlayerActivity", "无法执行前进操作：播放器未初始化");
+                MessageHelpers.showMessage(this, "播放器未初始化");
+                return;
+            }
 
             // 标记跳转操作开始
             mSeekInProgress = true;
@@ -1215,34 +1266,87 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             long actualJumpMs = newPosition - position;
 
             // 设置新位置
-            mPresenter.setPositionMs(newPosition);
+            try {
+                mPresenter.setPositionMs(newPosition);
+            } catch (IllegalStateException e) {
+                android.util.Log.e("StandaloneSmbPlayerActivity", "设置位置时出错", e);
+                MessageHelpers.showMessage(this, "播放错误: " + e.getMessage());
+                mSeekInProgress = false;
+                return;
+            }
 
             // 验证跳转是否成功
             mHandler.postDelayed(() -> {
-                long currentPos = mPresenter.getPositionMs();
-                boolean isSuccessful = Math.abs(currentPos - newPosition) <= 1000; // 如果差异在1秒内视为成功
+                try {
+                    if (mPresenter == null || !mPresenter.hasExoPlayer()) {
+                        android.util.Log.e("StandaloneSmbPlayerActivity", "验证跳转失败：播放器已释放");
+                        mSeekInProgress = false;
+                        return;
+                    }
+                    
+                    long currentPos = mPresenter.getPositionMs();
+                    boolean isSuccessful = Math.abs(currentPos - newPosition) <= 1000; // 如果差异在1秒内视为成功
 
-                if (!isSuccessful) {
-                    android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作验证失败: 期望位置=" +
-                            newPosition + "ms, 实际位置=" + currentPos + "ms, 差异=" +
-                            Math.abs(currentPos - newPosition) + "ms");
+                    if (!isSuccessful) {
+                        android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作验证失败: 期望位置=" +
+                                newPosition + "ms, 实际位置=" + currentPos + "ms, 差异=" +
+                                Math.abs(currentPos - newPosition) + "ms");
 
-                    // 再次尝试设置位置
-                    mPresenter.setPositionMs(newPosition);
-
-                    // 延迟再次验证
-                    mHandler.postDelayed(() -> {
-                        long verifiedPos = mPresenter.getPositionMs();
-                        // 无论成功与否，都更新UI，但记录日志
-                        if (Math.abs(verifiedPos - newPosition) > 1000) {
-                            android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作二次验证仍然失败");
-                        } else {
-                            android.util.Log.d("StandaloneSmbPlayerActivity", "前进操作二次验证成功");
+                        // 再次尝试设置位置
+                        try {
+                            mPresenter.setPositionMs(newPosition);
+                        } catch (IllegalStateException e) {
+                            android.util.Log.e("StandaloneSmbPlayerActivity", "二次设置位置时出错", e);
+                            mSeekInProgress = false;
+                            return;
                         }
 
-                        // 更新UI显示
-                        updatePosition(verifiedPos);
-                        updateSeekBarForPosition(verifiedPos);
+                        // 延迟再次验证
+                        mHandler.postDelayed(() -> {
+                            try {
+                                if (mPresenter == null || !mPresenter.hasExoPlayer()) {
+                                    android.util.Log.e("StandaloneSmbPlayerActivity", "二次验证失败：播放器已释放");
+                                    mSeekInProgress = false;
+                                    return;
+                                }
+                                
+                                long verifiedPos = mPresenter.getPositionMs();
+                                // 无论成功与否，都更新UI，但记录日志
+                                if (Math.abs(verifiedPos - newPosition) > 1000) {
+                                    android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作二次验证仍然失败");
+                                } else {
+                                    android.util.Log.d("StandaloneSmbPlayerActivity", "前进操作二次验证成功");
+                                }
+
+                                // 更新UI显示
+                                updatePosition(verifiedPos);
+                                updateSeekBarForPosition(verifiedPos);
+
+                                // 重置跳转进度标记
+                                mSeekInProgress = false;
+
+                                // 如果仍处于长按状态，立即执行下一次操作
+                                if (mIsLongPress) {
+                                    // 检查是否需要更新步进级别
+                                    checkAndUpdateSeekStepIndex();
+
+                                    // 获取当前步长
+                                    long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
+
+                                    // 立即继续前进操作
+                                    seekForwardWithStep(currentStepMs);
+                                }
+                            } catch (Exception e) {
+                                android.util.Log.e("StandaloneSmbPlayerActivity", "前进二次验证时发生异常", e);
+                                mSeekInProgress = false;
+                            }
+                        }, 100);
+                    } else {
+                        android.util.Log.d("StandaloneSmbPlayerActivity", "前进操作验证成功: 位置已正确设置");
+
+                        // 操作成功，更新UI显示
+                        updatePosition(currentPos);
+                        updateSeekBarForPosition(currentPos);
 
                         // 重置跳转进度标记
                         mSeekInProgress = false;
@@ -1258,28 +1362,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                             // 立即继续前进操作
                             seekForwardWithStep(currentStepMs);
                         }
-                    }, 100);
-                } else {
-                    android.util.Log.d("StandaloneSmbPlayerActivity", "前进操作验证成功: 位置已正确设置");
-
-                    // 操作成功，更新UI显示
-                    updatePosition(currentPos);
-                    updateSeekBarForPosition(currentPos);
-
-                    // 重置跳转进度标记
-                    mSeekInProgress = false;
-
-                    // 如果仍处于长按状态，立即执行下一次操作
-                    if (mIsLongPress) {
-                        // 检查是否需要更新步进级别
-                        checkAndUpdateSeekStepIndex();
-
-                        // 获取当前步长
-                        long currentStepMs = SEEK_STEPS[mLongPressStepIndex];
-
-                        // 立即继续前进操作
-                        seekForwardWithStep(currentStepMs);
                     }
+                } catch (Exception e) {
+                    android.util.Log.e("StandaloneSmbPlayerActivity", "前进验证时发生异常", e);
+                    mSeekInProgress = false;
                 }
             }, 200);
         } catch (Exception e) {

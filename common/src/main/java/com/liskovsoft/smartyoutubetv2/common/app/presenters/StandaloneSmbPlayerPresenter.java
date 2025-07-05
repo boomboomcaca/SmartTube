@@ -320,7 +320,19 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
 
     public void setPositionMs(long positionMs) {
         if (mExoPlayer != null) {
-            mExoPlayer.seekTo(positionMs);
+            try {
+                int state = mExoPlayer.getPlaybackState();
+                // 只有在播放器状态有效时才设置位置
+                if (state != Player.STATE_IDLE && state != Player.STATE_ENDED) {
+                    mExoPlayer.seekTo(positionMs);
+                } else {
+                    Log.w(TAG, "无法设置播放位置: 播放器状态无效 " + state);
+                }
+            } catch (IllegalStateException e) {
+                Log.e(TAG, "设置位置时出错: " + e.getMessage(), e);
+            }
+        } else {
+            Log.e(TAG, "无法设置播放位置: 播放器为空");
         }
     }
 
