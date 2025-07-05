@@ -262,49 +262,20 @@ public class SubtitleWordSelectionController {
      * 刷新当前字幕文本
      */
     private void refreshCurrentSubtitle() {
-        if (mSubtitleView != null) {
-            List<Cue> currentCues = mSubtitleView.getCues();
-            if (currentCues != null && !currentCues.isEmpty()) {
-                Log.d(TAG, "刷新当前字幕文本，Cue数量: " + currentCues.size());
-                setCurrentSubtitleText(currentCues);
-            } else {
-                // 尝试通过反射获取字幕内容
-                tryGetSubtitleByReflection();
-            }
-        }
-    }
-
-    /**
-     * 尝试通过反射获取字幕内容
-     */
-    private void tryGetSubtitleByReflection() {
         try {
-            Field paintersField = mSubtitleView.getClass().getDeclaredField("painters");
-            paintersField.setAccessible(true);
-            @SuppressWarnings("unchecked") List<Object> painters = (List<Object>) paintersField.get(mSubtitleView);
-
-            if (painters != null && !painters.isEmpty()) {
-                StringBuilder subtitleText = new StringBuilder();
-                for (Object painter : painters) {
-                    Field textField = painter.getClass().getDeclaredField("text");
-                    textField.setAccessible(true);
-                    CharSequence text = (CharSequence) textField.get(painter);
-
-                    if (text != null && text.length() > 0) {
-                        if (subtitleText.length() > 0) {
-                            subtitleText.append(" ");
-                        }
-                        subtitleText.append(text);
-                    }
-                }
-
-                if (subtitleText.length() > 0) {
-                    Log.d(TAG, "通过反射获取到字幕文本: " + subtitleText);
-                    mCurrentSubtitleText = subtitleText.toString();
+            if (mSubtitleView != null) {
+                List<Cue> currentCues = mSubtitleView.getCues();
+                if (currentCues != null && !currentCues.isEmpty()) {
+                    String newText = SubtitleTextProcessor.extractTextFromCues(currentCues);
+                    Log.d(TAG, "刷新字幕：原文本='" + 
+                          (mCurrentSubtitleText.length() > 20 ? mCurrentSubtitleText.substring(0, 20) + "..." : mCurrentSubtitleText) + 
+                          "', 新文本='" + 
+                          (newText.length() > 20 ? newText.substring(0, 20) + "..." : newText) + "'");
+                    mCurrentSubtitleText = newText;
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "通过反射获取字幕文本失败: " + e.getMessage(), e);
+            Log.e(TAG, "刷新字幕时出错: " + e.getMessage(), e);
         }
     }
 
@@ -678,6 +649,11 @@ public class SubtitleWordSelectionController {
 
         // 提取字幕文本
         mCurrentSubtitleText = SubtitleTextProcessor.extractTextFromCues(cues);
+        
+        // 添加调试日志，显示字幕更新信息
+        Log.d(TAG, "字幕更新: " + 
+              "旧='" + (oldSubtitleText.length() > 20 ? oldSubtitleText.substring(0, 20) + "..." : oldSubtitleText) + "' -> " +
+              "新='" + (mCurrentSubtitleText.length() > 20 ? mCurrentSubtitleText.substring(0, 20) + "..." : mCurrentSubtitleText) + "'");
 
         // 检测字幕是否变化
         boolean isSubtitleChanged = !mCurrentSubtitleText.equals(oldSubtitleText);
@@ -686,11 +662,20 @@ public class SubtitleWordSelectionController {
             // 记录字幕变化时间
             mLastSubtitleText = oldSubtitleText;
             mLastSubtitleChangeTime = System.currentTimeMillis();
+            
+            // 如果在选词模式中，更新分词结果
+            if (mIsWordSelectionMode) {
+                Log.d(TAG, "在选词模式下检测到字幕变化，更新单词列表");
+                splitSubtitleIntoWords();
+                highlightCurrentWord();
+            }
 
             // 检查是否启用了"字幕结束时自动选择最后一个单词"功能
             if (!mIsWordSelectionMode && com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(mContext).isAutoSelectLastWordEnabled()) {
-
-                Log.d(TAG, "检查是否需要自动选择最后一个单词 - 旧字幕: " + (oldSubtitleText.length() > 50 ? oldSubtitleText.substring(0, 50) + "..." : oldSubtitleText) + ", 新字幕: " + (mCurrentSubtitleText.length() > 50 ? mCurrentSubtitleText.substring(0, 50) + "..." : mCurrentSubtitleText));
+                Log.d(TAG, "检查是否需要自动选择最后一个单词 - 旧字幕: " + 
+                      (oldSubtitleText.length() > 50 ? oldSubtitleText.substring(0, 50) + "..." : oldSubtitleText) + 
+                      ", 新字幕: " + 
+                      (mCurrentSubtitleText.length() > 50 ? mCurrentSubtitleText.substring(0, 50) + "..." : mCurrentSubtitleText));
 
                 // 修改触发条件：字幕结束或者字幕变化且包含完整句子
                 boolean isSubtitleEnding = !oldSubtitleText.isEmpty() && mCurrentSubtitleText.isEmpty();
@@ -760,72 +745,33 @@ public class SubtitleWordSelectionController {
 
     /**
      * 检查是否有字幕文本
+     * 修复：确保即使初始化时没有字幕，后来加载字幕时也能正确返回结果
      */
     public boolean hasSubtitleText() {
-        try {
-            boolean hasText = mCurrentSubtitleText != null && !mCurrentSubtitleText.isEmpty();
-            Log.d(TAG, "hasSubtitleText初步检查: " + hasText + ", mCurrentSubtitleText=" + (mCurrentSubtitleText != null ? "\"" + mCurrentSubtitleText + "\"" : "null"));
-    
-            if (!hasText) {
-                // 如果没有字幕文本，尝试刷新一次
-                refreshCurrentSubtitle();
-                hasText = mCurrentSubtitleText != null && !mCurrentSubtitleText.isEmpty();
-                Log.d(TAG, "刷新后 hasSubtitleText: " + hasText + ", mCurrentSubtitleText=" + (mCurrentSubtitleText != null ? "\"" + mCurrentSubtitleText + "\"" : "null"));
-    
-                // 如果还是没有，尝试检查字幕视图
-                if (!hasText && mSubtitleView != null) {
-                    try {
-                        // 检查是否有可见的字幕
-                        if (mSubtitleView.getVisibility() == View.VISIBLE) {
-                            // 尝试通过反射获取字幕内容
-                            tryGetSubtitleByReflection();
-                            hasText = mCurrentSubtitleText != null && !mCurrentSubtitleText.isEmpty();
-                            Log.d(TAG, "通过反射后 hasSubtitleText: " + hasText);
-                        }
-    
-                        // 如果字幕视图可见，则认为有字幕
-                        if (!hasText && mSubtitleView.getVisibility() == View.VISIBLE) {
-                            Log.d(TAG, "字幕视图可见，但无法获取文本，假定有字幕");
-                            return true;
-                        }
-    
-                        // 检查是否有上一个字幕
-                        if (!hasText && mLastSubtitleText != null && !mLastSubtitleText.isEmpty()) {
-                            Log.d(TAG, "使用上一个字幕文本: " + mLastSubtitleText);
-                            mCurrentSubtitleText = mLastSubtitleText;
-                            return true;
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "检查字幕视图时出错: " + e.getMessage(), e);
-                    }
-                }
-    
-                // 最后的方法：检查字幕管理器
-                if (!hasText && mPlaybackPresenter != null && mPlaybackPresenter.getView() != null) {
-                    try {
-                        SubtitleManager subtitleManager = mPlaybackPresenter.getView().getSubtitleManager();
-                        if (subtitleManager != null) {
-                            // 这里我们需要更严格地判断是否真的有字幕
-                            // 不再仅仅因为字幕管理器存在就假定有字幕
-                            // 只有当确实存在字幕数据时才返回true
-                            if (subtitleManager.getWordSelectionController() != null) {
-                                Log.d(TAG, "找到字幕控制器，进一步检查字幕");
-                                // 什么都不做，让方法返回hasText的值
-                            } else {
-                                Log.d(TAG, "找到字幕管理器，但没有字幕控制器，可能没有字幕");
-                            }
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "检查字幕管理器时出错: " + e.getMessage(), e);
-                    }
-                }
-            }
-            
-            return hasText;
-        } catch (Exception e) {
-            Log.e(TAG, "hasSubtitleText方法出现异常: " + e.getMessage(), e);
-            return false; // 出现异常时返回false，表示没有字幕
+        // 首先检查当前缓存的字幕文本
+        if (mCurrentSubtitleText != null && !mCurrentSubtitleText.isEmpty()) {
+            return true;
         }
+        
+        // 如果缓存为空，尝试从字幕视图获取
+        if (mSubtitleView != null) {
+            try {
+                List<Cue> currentCues = mSubtitleView.getCues();
+                if (currentCues != null && !currentCues.isEmpty()) {
+                    // 实时提取字幕文本
+                    String text = SubtitleTextProcessor.extractTextFromCues(currentCues);
+                    if (text != null && !text.isEmpty()) {
+                        // 更新缓存
+                        mCurrentSubtitleText = text;
+                        return true;
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "检查字幕文本时出错", e);
+            }
+        }
+        
+        return false;
     }
 
     /**

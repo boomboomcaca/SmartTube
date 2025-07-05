@@ -27,6 +27,9 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.StandaloneSmbPlayerView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleWordSelectionController;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * 独立的SMB视频播放器活动
  */
@@ -78,6 +81,19 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
 
     // 添加字幕管理器
     private com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager mSubtitleManager;
+    
+    // 添加字幕同步定时器
+    private final Handler mSubtitleSyncHandler = new Handler();
+    private final long SUBTITLE_SYNC_INTERVAL_MS = 100; // 100毫秒检查一次字幕同步状态
+    private List<com.google.android.exoplayer2.text.Cue> mLastSyncedCues = null;
+    private final Runnable mSubtitleSyncRunnable = new Runnable() {
+        @Override
+        public void run() {
+            syncSubtitlesToWordController();
+            // 继续循环检查
+            mSubtitleSyncHandler.postDelayed(this, SUBTITLE_SYNC_INTERVAL_MS);
+        }
+    };
 
     private final Runnable mHideUIRunnable = new Runnable() {
         @Override
@@ -119,6 +135,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
 
         // 初始化字幕管理器
         initSubtitleManager();
+        
+        // 启动字幕同步
+        mSubtitleSyncHandler.post(mSubtitleSyncRunnable);
 
         // 长按任务将在dispatchKeyEvent中动态创建
         mLongPressRunnable = null;
@@ -444,6 +463,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         super.onStop();
         mPresenter.stopProgressUpdates();
         mHandler.removeCallbacks(mHideUIRunnable);
+        mSubtitleSyncHandler.removeCallbacks(mSubtitleSyncRunnable); // 停止字幕同步
         cancelLongPress(); // 确保在Activity停止时取消长按任务
     }
 
@@ -1266,6 +1286,49 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             android.util.Log.e("StandaloneSmbPlayerActivity", "前进操作失败", e);
             MessageHelpers.showMessage(this, "前进操作失败: " + e.getMessage());
             mSeekInProgress = false; // 确保在发生异常时重置标志
+        }
+    }
+
+    /**
+     * 同步显示的字幕到字幕选词控制器
+     */
+    private void syncSubtitlesToWordController() {
+        try {
+            if (mWordSelectionController != null && mPlayerView != null && !isFinishing()) {
+                SubtitleView subtitleView = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_subtitles);
+                if (subtitleView != null) {
+                    List<com.google.android.exoplayer2.text.Cue> currentCues = subtitleView.getCues();
+                    
+                    // 检查是否需要更新(字幕有变化或第一次)
+                    boolean needsUpdate = mLastSyncedCues == null;
+                    
+                    if (!needsUpdate && currentCues != null && mLastSyncedCues != null) {
+                        // 检查数量是否相同
+                        if (currentCues.size() != mLastSyncedCues.size()) {
+                            needsUpdate = true;
+                        } else {
+                            // 检查内容是否相同
+                            for (int i = 0; i < currentCues.size(); i++) {
+                                if (currentCues.get(i).text != null && 
+                                    !currentCues.get(i).text.equals(mLastSyncedCues.get(i).text)) {
+                                    needsUpdate = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 如果需要更新
+                    if (needsUpdate && currentCues != null) {
+                        mLastSyncedCues = new ArrayList<>(currentCues);
+                        
+                        android.util.Log.d(TAG, "字幕同步: 发现字幕变化，正在同步到字幕选词控制器");
+                        mWordSelectionController.setCurrentSubtitleText(currentCues);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "字幕同步出错: " + e.getMessage());
         }
     }
 

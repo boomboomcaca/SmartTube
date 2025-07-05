@@ -291,7 +291,24 @@ public class SubtitleManager implements TextOutput, OnDataChange {
             
             // 确保选词控制器使用最新的字幕内容
             if (mWordSelectionController != null) {
-                mWordSelectionController.setCurrentSubtitleText(alignedCues != null ? alignedCues : cues);
+                try {
+                    // 重要变更：在同步字幕到选词控制器前创建一份深拷贝，避免引用问题
+                    List<Cue> cuesCopy = null;
+                    if (alignedCues != null && !alignedCues.isEmpty()) {
+                        cuesCopy = new ArrayList<>(alignedCues);
+                    } else if (cues != null && !cues.isEmpty()) {
+                        cuesCopy = new ArrayList<>(cues);
+                    }
+                    
+                    if (cuesCopy != null) {
+                        Log.d(TAG, "向字幕选词控制器同步新字幕，字幕数量: " + cuesCopy.size());
+                        mWordSelectionController.setCurrentSubtitleText(cuesCopy);
+                    } else {
+                        mWordSelectionController.setCurrentSubtitleText(null); // 清除字幕
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "同步字幕到选词控制器时出错: " + e.getMessage(), e);
+                }
             }
             
             // 生成当前字幕的ID
@@ -300,6 +317,11 @@ public class SubtitleManager implements TextOutput, OnDataChange {
             if (cues != null && !cues.isEmpty() && cues.get(0).text != null) {
                 newSubtitleId = generateSubtitleId(cues);
                 newSubtitleText = cues.get(0).text;
+                
+                // 调试日志，显示字幕内容
+                String subtitleContent = newSubtitleText.toString();
+                Log.d(TAG, "当前字幕内容: " + (subtitleContent.length() > 50 ? 
+                        subtitleContent.substring(0, 50) + "..." : subtitleContent));
             }
             
             // 检查当前是否在选词模式，如果是且字幕变化，则退出选词模式
