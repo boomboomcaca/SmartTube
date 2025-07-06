@@ -71,7 +71,7 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
         
         // 设置长按监听器处理文件删除
         // 修复：不应直接设置长按监听器，而应通过CardPresenter设置
-        // setOnItemLongPressListener(new ItemViewLongPressedListener());
+        setOnItemLongPressListener(new ItemViewLongPressedListener());
         
         // 创建进度条并添加到视图中
         mProgressBar = new ProgressBar(getContext());
@@ -311,8 +311,9 @@ public class SmbPlayerFragment extends VideoGridFragment implements SmbPlayerVie
      * 设置各种事件监听器
      */
     private void setupEventListeners() {
-        if (mCardPresenter != null) {
-            mCardPresenter.setOnItemViewLongPressedListener(new ItemViewLongPressedListener());
-        }
+        // 我们已经在onViewCreated中设置了长按监听器，这里不需要重复设置
+        // if (mCardPresenter != null) {
+        //     mCardPresenter.setOnItemViewLongPressedListener(new ItemViewLongPressedListener());
+        // }
     }
 } 
