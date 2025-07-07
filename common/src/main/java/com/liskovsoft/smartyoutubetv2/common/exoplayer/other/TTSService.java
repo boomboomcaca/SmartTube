@@ -146,33 +146,22 @@ public class TTSService {
      * 释放资源
      */
     public void release() {
-        // 删除当前的音频文件
+        stopPlaying();
         deleteCurrentAudioFile();
         
-        // 恢复原始音量
-        restoreOriginalVolume();
-        
-        // 释放MediaPlayer资源
+        // 释放媒体播放器
         if (mMediaPlayer != null) {
             try {
-                if (mMediaPlayer.isPlaying()) mMediaPlayer.stop();
                 mMediaPlayer.release();
                 mMediaPlayer = null;
             } catch (Exception e) {
-                Log.e(TAG, "释放MediaPlayer时出错: " + e.getMessage());
+                Log.e(TAG, "释放媒体播放器失败", e);
             }
         }
         
-        // 释放TTS资源
-        if (mTextToSpeech != null) {
-            try {
-                mTextToSpeech.stop();
-                mTextToSpeech.shutdown();
-                mTextToSpeech = null;
-                mIsInitialized = false;
-            } catch (Exception e) {
-                Log.e(TAG, "释放TTS时出错: " + e.getMessage());
-            }
-        }
+        // 释放其他资源，但不清空Context引用，因为它是final
+        // 移除mHandler相关代码，因为该类中不存在此变量
+        
+        Log.d(TAG, "TTS服务资源已释放");
     }
 }

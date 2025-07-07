@@ -113,7 +113,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             SubtitleView subtitleView = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_subtitles);
             if (subtitleView != null && mPlayerView.getParent() instanceof FrameLayout) {
                 FrameLayout rootView = (FrameLayout) mPlayerView.getParent();
-                mWordSelectionController = new SubtitleWordSelectionController(this, subtitleView, rootView);
+                mWordSelectionController = SubtitleWordSelectionController.getInstance(this, subtitleView, rootView);
             }
         }
         
@@ -451,11 +451,12 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     protected void onDestroy() {
         super.onDestroy();
         
+        android.util.Log.d(TAG, "onDestroy: 清理资源...");
+        
         // 释放字幕选词控制器资源
-        if (mWordSelectionController != null) {
-            mWordSelectionController.release();
-            mWordSelectionController = null;
-        }
+        SubtitleWordSelectionController.release();
+        
+        android.util.Log.d(TAG, "onDestroy: 资源清理完成");
         
         // 释放字幕管理器资源
         if (mSubtitleManager != null) {
@@ -1230,7 +1231,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                     android.util.Log.d(TAG, "字幕管理器已创建，等待ExoPlayer初始化");
                     
                     // 初始化字幕选词控制器
-                    mWordSelectionController = new SubtitleWordSelectionController(this, subtitleView, (FrameLayout) rootView);
+                    mWordSelectionController = SubtitleWordSelectionController.getInstance(this, subtitleView, (FrameLayout) rootView);
                     android.util.Log.d(TAG, "字幕选词控制器初始化成功");
                 } else {
                     android.util.Log.e(TAG, "无法找到合适的根视图，字幕选词控制器初始化失败");
@@ -1294,7 +1295,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     public void initWordSelectionController(SubtitleView subtitleView, FrameLayout rootView) {
         if (subtitleView != null && rootView != null) {
             if (mWordSelectionController == null) {
-                mWordSelectionController = new SubtitleWordSelectionController(this, subtitleView, rootView);
+                mWordSelectionController = SubtitleWordSelectionController.getInstance(this, subtitleView, rootView);
                 android.util.Log.d(TAG, "字幕选词控制器通过接口方法初始化成功");
             } else {
                 android.util.Log.d(TAG, "字幕选词控制器已存在，无需重新初始化");
@@ -1321,7 +1322,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 SubtitleView subtitleView = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_subtitles);
                 if (subtitleView != null && mPlayerView.getParent() instanceof FrameLayout) {
                     FrameLayout rootView = (FrameLayout) mPlayerView.getParent();
-                    mWordSelectionController = new SubtitleWordSelectionController(this, subtitleView, rootView);
+                    mWordSelectionController = SubtitleWordSelectionController.getInstance(this, subtitleView, rootView);
                     
                     // 再次尝试进入选词模式
                     if (mWordSelectionController != null) {

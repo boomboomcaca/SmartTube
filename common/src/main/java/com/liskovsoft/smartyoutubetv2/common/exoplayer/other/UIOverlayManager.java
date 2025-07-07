@@ -26,7 +26,7 @@ public class UIOverlayManager {
     private static final String TAG = UIOverlayManager.class.getSimpleName();
     
     private final Context mContext;
-    private final FrameLayout mRootView;
+    private FrameLayout mRootView;
     private FrameLayout mSelectionOverlay;
     private TextView mTextView;
     
@@ -273,5 +273,31 @@ public class UIOverlayManager {
      */
     public boolean isOverlayVisible() {
         return mSelectionOverlay != null && mSelectionOverlay.getVisibility() == View.VISIBLE;
+    }
+
+    /**
+     * 更新根视图引用
+     * @param rootView 新的根视图
+     */
+    public void updateRootView(FrameLayout rootView) {
+        if (rootView != null && mRootView != rootView) {
+            // 先移除旧视图中的覆盖层
+            removeAllOverlays();
+            
+            // 更新根视图引用
+            mRootView = rootView;
+            
+            Log.d(TAG, "根视图引用已更新");
+        }
+    }
+    
+    /**
+     * 移除所有覆盖层
+     */
+    private void removeAllOverlays() {
+        if (mRootView != null) {
+            // 这里可能需要移除其他覆盖层，根据实际需要添加代码
+            // 例如: mRootView.removeView(someOverlay);
+        }
     }
 }

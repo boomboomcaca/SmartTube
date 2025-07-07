@@ -28,6 +28,12 @@ import java.util.List;
 public class SubtitleWordSelectionController {
     private static final String TAG = SubtitleWordSelectionController.class.getSimpleName();
     
+    // 单例实例
+    private static SubtitleWordSelectionController sInstance;
+    
+    // 添加锁对象，用于线程安全地创建单例
+    private static final Object INSTANCE_LOCK = new Object();
+    
     // 内部类用于保存翻译状态，确保不会丢失信息
     private static class SubtitleTranslationState {
         public final String word;           // 要翻译的单词
@@ -54,15 +60,15 @@ public class SubtitleWordSelectionController {
         }
     }
     
-    private final Context mContext;
-    private final SubtitleView mSubtitleView;
-    private final FrameLayout mRootView;
-    private final PlaybackPresenter mPlaybackPresenter;
+    private Context mContext;
+    private SubtitleView mSubtitleView;
+    private FrameLayout mRootView;
+    private PlaybackPresenter mPlaybackPresenter;
     
     // 各个功能模块
-    private final VocabularyDatabase mVocabularyDatabase;
-    private final TTSService mTTSService;
-    private final UIOverlayManager mUIManager;
+    private VocabularyDatabase mVocabularyDatabase;
+    private TTSService mTTSService;
+    private UIOverlayManager mUIManager;
     
     // 选词模式状态
     private boolean mIsWordSelectionMode = false;
@@ -71,6 +77,7 @@ public class SubtitleWordSelectionController {
     private int mCurrentWordIndex = 0;
     private int[] mWordPositions = new int[0];
     private boolean mIsShowingDefinition = false;
+    private boolean isExitTriggeredByBackKey = false; // 标记是否是由返回键触发的退出
     
     // 翻译状态管理 - 关键改进
     private SubtitleTranslationState mCurrentTranslationState = null;
@@ -99,19 +106,83 @@ public class SubtitleWordSelectionController {
     private int mRetryCount = 0;
     private static final int MAX_RETRY_COUNT = 10;
     
-    public SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
-        mContext = context;
-        mSubtitleView = subtitleView;
-        mRootView = rootView;
-        mPlaybackPresenter = PlaybackPresenter.instance(context);
+    // 构造函数改为私有，但不标记为final
+    private SubtitleWordSelectionController(Context context, SubtitleView subtitleView, FrameLayout rootView) {
+        this.mContext = context;
+        this.mSubtitleView = subtitleView;
+        this.mRootView = rootView;
+        this.mPlaybackPresenter = PlaybackPresenter.instance(context);
         
         // 初始化各个模块
-        mVocabularyDatabase = VocabularyDatabase.getInstance(context);
-        mTTSService = new TTSService(context);
-        mUIManager = new UIOverlayManager(context, rootView);
+        this.mVocabularyDatabase = VocabularyDatabase.getInstance(context);
+        this.mTTSService = new TTSService(context);
+        
+        if (rootView != null) {
+            this.mUIManager = new UIOverlayManager(context, rootView);
+            Log.d(TAG, "UI管理器初始化成功");
+        } else {
+            Log.e(TAG, "无法初始化UI管理器：根视图为null");
+        }
         
         // 延迟初始化
         mHandler.postDelayed(this::initializeController, 1000);
+    }
+    
+    /**
+     * 获取单例实例
+     */
+    public static SubtitleWordSelectionController getInstance(Context context, SubtitleView subtitleView, FrameLayout rootView) {
+        if (sInstance == null) {
+            synchronized (INSTANCE_LOCK) {
+                if (sInstance == null) {
+                    sInstance = new SubtitleWordSelectionController(context, subtitleView, rootView);
+                } else {
+                    // 如果实例已存在，更新视图引用
+                    sInstance.updateViews(subtitleView, rootView);
+                }
+            }
+        } else {
+            // 如果实例已存在，更新视图引用
+            sInstance.updateViews(subtitleView, rootView);
+        }
+        
+        return sInstance;
+    }
+    
+    /**
+     * 更新视图引用
+     */
+    private void updateViews(SubtitleView subtitleView, FrameLayout rootView) {
+        if (subtitleView != null && this.mSubtitleView != subtitleView) {
+            this.mSubtitleView = subtitleView;
+            Log.d(TAG, "字幕视图引用已更新");
+        }
+        
+        if (rootView != null && this.mRootView != rootView) {
+            this.mRootView = rootView;
+            
+            // 更新UI管理器的根视图引用
+            if (mUIManager != null) {
+                mUIManager.updateRootView(rootView);
+                Log.d(TAG, "UI管理器根视图已更新");
+            }
+            
+            Log.d(TAG, "根视图引用已更新");
+        }
+    }
+    
+    /**
+     * 释放单例资源
+     */
+    public static void release() {
+        if (sInstance != null) {
+            if (sInstance.mTTSService != null) {
+                sInstance.mTTSService.release();
+            }
+            
+            sInstance = null;
+            Log.d(TAG, "字幕选词控制器单例已释放");
+        }
     }
     
     /**
@@ -1489,10 +1560,12 @@ public class SubtitleWordSelectionController {
     }
     
     /**
-     * 释放资源
+     * 在活动销毁时调用，清理资源
      */
-    public void release() {
+    public void onDestroy() {
         exitWordSelectionMode();
-        mTTSService.release();
+        if (mTTSService != null) {
+            mTTSService.stopPlaying();
+        }
     }
 }

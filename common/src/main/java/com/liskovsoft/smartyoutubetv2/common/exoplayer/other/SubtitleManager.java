@@ -119,7 +119,7 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         // 初始化字幕选词控制器
         FrameLayout rootView = activity.findViewById(R.id.playback_fragment_root);
         if (rootView != null && mSubtitleView != null) {
-            mWordSelectionController = new SubtitleWordSelectionController(activity, mSubtitleView, rootView);
+            mWordSelectionController = SubtitleWordSelectionController.getInstance(activity, mSubtitleView, rootView);
             Log.d(TAG, "字幕选词控制器初始化成功");
         } else {
             Log.e(TAG, "字幕选词控制器初始化失败: rootView=" + (rootView != null) + ", mSubtitleView=" + (mSubtitleView != null));
@@ -170,7 +170,7 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         }
         
         if (rootView != null) {
-            mWordSelectionController = new SubtitleWordSelectionController(mContext, mSubtitleView, (FrameLayout) rootView);
+            mWordSelectionController = SubtitleWordSelectionController.getInstance(mContext, mSubtitleView, (FrameLayout) rootView);
             Log.d(TAG, "SMB播放器: 字幕选词控制器初始化成功");
         } else {
             Log.e(TAG, "SMB播放器: 无法找到合适的根视图，字幕选词控制器初始化失败");
@@ -576,7 +576,7 @@ public class SubtitleManager implements TextOutput, OnDataChange {
             // 创建选词控制器
             FrameLayout rootView = (FrameLayout) mSubtitleView.getParent();
             if (rootView != null) {
-                mWordSelectionController = new SubtitleWordSelectionController(mContext, mSubtitleView, rootView);
+                mWordSelectionController = SubtitleWordSelectionController.getInstance(mContext, mSubtitleView, rootView);
             }
         }
         return mWordSelectionController;
