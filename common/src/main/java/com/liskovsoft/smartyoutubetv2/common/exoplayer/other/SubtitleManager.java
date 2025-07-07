@@ -222,7 +222,7 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                         mWordSelectionActive = true; // 设置标志位，避免重复触发
                         mLastSelectionTimeMs = System.currentTimeMillis();
                         Log.d(TAG, "进入选词模式并标记状态 - 字幕ID: " + mCurrentSubtitleId);
-                        mWordSelectionController.enterWordSelectionMode(false); // 从最后一个单词开始
+                        mWordSelectionController.enterWordSelectionMode(false, true); // 从最后一个单词开始，设置为自动选词模式
                     }
                     mWordSelectionPending = false; // 无论是否成功，都重置等待状态
                 }
@@ -360,12 +360,37 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         // 检查当前是否在选词模式，如果是且字幕变化，则退出选词模式
         if (mWordSelectionController != null && 
             (mWordSelectionController.isInWordSelectionMode() || mWordSelectionActive || mWordSelectionPending)) {
-            Log.d(TAG, "检测到字幕变化时已在选词模式或选词过程中，退出当前选词模式");
-            exitWordSelectionModeAndReset();
             
-            // 取消所有可能的后续选词操作
-            mHandler.removeCallbacks(mAutoSelectWordRunnable);
-            mHandler.removeCallbacks(mPeriodicCheckRunnable);
+            // 检查是否是自动选词模式 - 此时我们应当保留选词状态
+            boolean isAutoSelectMode = false;
+            if (mWordSelectionController.isInWordSelectionMode()) {
+                try {
+                    // 使用反射获取mCurrentTranslationState.isAutoSelected
+                    Field controllerField = mWordSelectionController.getClass().getDeclaredField("mCurrentTranslationState");
+                    controllerField.setAccessible(true);
+                    Object translationState = controllerField.get(mWordSelectionController);
+                    
+                    if (translationState != null) {
+                        Field autoSelectedField = translationState.getClass().getDeclaredField("isAutoSelected");
+                        autoSelectedField.setAccessible(true);
+                        isAutoSelectMode = (boolean) autoSelectedField.get(translationState);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "无法获取自动选词状态: " + e.getMessage());
+                }
+            }
+            
+            // 只有在非自动选词模式时，才在字幕变化时退出选词模式
+            if (!isAutoSelectMode) {
+                Log.d(TAG, "检测到字幕变化且非自动选词模式，退出当前选词模式");
+                exitWordSelectionModeAndReset();
+                
+                // 取消所有可能的后续选词操作
+                mHandler.removeCallbacks(mAutoSelectWordRunnable);
+                mHandler.removeCallbacks(mPeriodicCheckRunnable);
+            } else {
+                Log.d(TAG, "检测到字幕变化，但处于自动选词模式，保持选词状态");
+            }
         }
         
         // 更新字幕文本到选词控制器
