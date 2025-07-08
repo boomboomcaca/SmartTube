@@ -525,15 +525,16 @@ public class SubtitleWordSelectionController {
             
             // 检测是否是双击
             if (timeSinceLastClick < DOUBLE_CLICK_TIME_DELTA) {
-                // 双击逻辑：添加到学习列表或切换TTS播放
+                // 双击逻辑：跳转到字幕开始时间
                 Log.d(TAG, "检测到双击OK按键 - 时间差: " + timeSinceLastClick + "ms");
                 
-                if (mIsShowingDefinition) {
-                    // 显示定义时，双击关闭定义窗口
-                    hideDefinitionOverlay();
+                // 跳转到当前字幕的开始时间
+                if (!isSeekProtectionActive()) {
+                    seekToCurrentSubtitleStartTime();
+                    MessageHelpers.showMessage(mContext, "跳转到字幕开始位置");
                 } else {
-                    // 非显示定义时，双击切换学习状态
-                    toggleWordLearningStatus();
+                    Log.d(TAG, "跳转保护已激活，忽略跳转请求");
+                    MessageHelpers.showMessage(mContext, "跳转保护中，请稍后再试");
                 }
                 
                 return true;
@@ -541,11 +542,11 @@ public class SubtitleWordSelectionController {
             
             // 单击逻辑
             mHandler.postDelayed(() -> {
-                Log.d(TAG, "处理单击OK按键 - 当前未显示定义窗口");
+                Log.d(TAG, "处理单击OK按键 - 当前状态: mIsShowingDefinition=" + mIsShowingDefinition);
                 
                 if (mIsShowingDefinition) {
-                    // 已显示定义，隐藏它
-                    hideDefinitionOverlay();
+                    // 已显示定义时，单击切换单词学习状态
+                    toggleWordLearningStatus();
                 } else {
                     // 保存字幕上下文（如果可用）
                     String currentContext = getSubtitleTextWithHighlightedWord();
@@ -964,22 +965,53 @@ public class SubtitleWordSelectionController {
     private void toggleWordLearningStatus() {
         if (mCurrentWordIndex >= 0 && mCurrentWordIndex < mWords.length) {
             String selectedWord = mWords[mCurrentWordIndex];
-            boolean isLearningWord = mVocabularyDatabase.isWordInLearningList(selectedWord);
-            boolean success;
+            Log.d(TAG, "切换单词学习状态: " + selectedWord);
+            
+            boolean isLearningWord = false;
+            try {
+                isLearningWord = mVocabularyDatabase.isWordInLearningList(selectedWord);
+                Log.d(TAG, selectedWord + " 是否已在学习列表中: " + isLearningWord);
+            } catch (Exception e) {
+                Log.e(TAG, "检查单词是否在学习列表中时出错: " + e.getMessage(), e);
+            }
+            
+            boolean success = false;
             
             if (isLearningWord) {
-                success = mVocabularyDatabase.removeWord(selectedWord);
-                if (success) {
-                    Log.d(TAG, "单词已从学习列表中删除: " + selectedWord);
+                try {
+                    success = mVocabularyDatabase.removeWord(selectedWord);
+                    if (success) {
+                        Log.d(TAG, "单词已从学习列表中删除: " + selectedWord);
+                        MessageHelpers.showMessage(mContext, "单词已删除: " + selectedWord);
+                    } else {
+                        Log.e(TAG, "删除单词失败: " + selectedWord);
+                        MessageHelpers.showMessage(mContext, "删除单词失败: " + selectedWord);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "删除单词时出错: " + e.getMessage(), e);
+                    MessageHelpers.showMessage(mContext, "删除单词时出错");
                 }
             } else {
-                success = mVocabularyDatabase.addWord(selectedWord);
-                if (success) {
-                    Log.d(TAG, "单词已添加到学习列表: " + selectedWord);
+                try {
+                    success = mVocabularyDatabase.addWord(selectedWord);
+                    if (success) {
+                        Log.d(TAG, "单词已添加到学习列表: " + selectedWord);
+                        MessageHelpers.showMessage(mContext, "单词已添加: " + selectedWord);
+                    } else {
+                        Log.e(TAG, "添加单词失败: " + selectedWord);
+                        MessageHelpers.showMessage(mContext, "添加单词失败: " + selectedWord);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "添加单词时出错: " + e.getMessage(), e);
+                    MessageHelpers.showMessage(mContext, "添加单词时出错");
                 }
             }
             
+            // 刷新字幕视图以更新高亮状态
             refreshSubtitleView();
+        } else {
+            Log.e(TAG, "无法切换单词状态: 无效的单词索引 " + mCurrentWordIndex);
+            MessageHelpers.showMessage(mContext, "无法切换单词状态: 无效的单词索引");
         }
     }
     
