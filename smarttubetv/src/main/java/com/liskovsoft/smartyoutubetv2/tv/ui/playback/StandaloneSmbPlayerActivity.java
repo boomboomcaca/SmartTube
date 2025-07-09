@@ -629,7 +629,24 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 switch (keyCode) {
                     case KeyEvent.KEYCODE_DPAD_LEFT:
                     case KeyEvent.KEYCODE_DPAD_RIGHT:
-                        // 左右键仅用于控制栏导航，不触发选词
+                        // 检查当前焦点是否在进度条下方的控件上
+                        boolean isFocusOnBottomControls = false;
+                        
+                        if (mMuteButton != null && mMuteButton.isFocused()) {
+                            isFocusOnBottomControls = true;
+                        } else if (mAutoSelectWordButton != null && mAutoSelectWordButton.isFocused()) {
+                            isFocusOnBottomControls = true;
+                        } else if (mPlayPauseButton != null && mPlayPauseButton.isFocused()) {
+                            isFocusOnBottomControls = true;
+                        }
+                        
+                        // 如果焦点在底部控件上，使用默认的焦点导航
+                        if (isFocusOnBottomControls) {
+                            android.util.Log.d(TAG, "焦点在底部控件上，使用默认的焦点导航");
+                            return super.dispatchKeyEvent(event);
+                        }
+                        
+                        // 否则，左右键用于快进/快退
                         if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
                             seekBackward();
                         } else {
@@ -649,6 +666,27 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                                 play(!isPlaying);
                                 updatePlayPauseButton(!isPlaying);
                                 scheduleHideControls();
+                                return true;
+                            }
+                            // 检查焦点是否在静音按钮上
+                            else if (mMuteButton != null && mMuteButton.isFocused()) {
+                                toggleMute();
+                                scheduleHideControls();
+                                return true;
+                            }
+                            // 检查焦点是否在自动选词按钮上
+                            else if (mAutoSelectWordButton != null && mAutoSelectWordButton.isFocused()) {
+                                // 切换自动选词状态
+                                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                                        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+                                boolean isEnabled = playerData.isAutoSelectLastWordEnabled();
+                                playerData.enableAutoSelectLastWord(!isEnabled);
+                                updateAutoSelectWordButton(!isEnabled);
+                                
+                                // 显示提示
+                                android.widget.Toast.makeText(this, 
+                                        "字幕结束时自动选择最后一个单词: " + (!isEnabled ? "开启" : "关闭"), 
+                                        android.widget.Toast.LENGTH_SHORT).show();
                                 return true;
                             }
                         }
@@ -1246,6 +1284,12 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             mControlsContainer.setVisibility(View.VISIBLE);
             mTitleContainer.setVisibility(View.VISIBLE);
             mControlsVisible = true;
+            
+            // 设置初始焦点
+            if (mSeekBar != null) {
+                // 默认焦点在进度条上
+                mSeekBar.requestFocus();
+            }
             
             // 安排自动隐藏
             scheduleHideControls();

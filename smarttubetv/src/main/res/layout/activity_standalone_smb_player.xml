@@ -95,7 +95,8 @@
                 android:focusable="true"
                 android:focusableInTouchMode="true"
                 android:nextFocusLeft="@id/seek_bar"
-                android:nextFocusRight="@id/seek_bar" />
+                android:nextFocusRight="@id/seek_bar"
+                android:nextFocusDown="@id/mute_button" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -146,8 +147,9 @@
                         android:padding="3dp"
                         android:focusable="true"
                         android:focusableInTouchMode="true"
-                        android:nextFocusLeft="@id/seek_bar"
-                        android:nextFocusRight="@id/auto_select_word_button" />
+                        android:nextFocusLeft="@id/mute_button"
+                        android:nextFocusRight="@id/auto_select_word_button"
+                        android:nextFocusUp="@id/seek_bar" />
                         
                     <!-- 添加自动选词开关 -->
                     <ImageButton
@@ -162,7 +164,8 @@
                         android:focusable="true"
                         android:focusableInTouchMode="true"
                         android:nextFocusLeft="@id/mute_button"
-                        android:nextFocusRight="@id/play_pause_button" />
+                        android:nextFocusRight="@id/play_pause_button"
+                        android:nextFocusUp="@id/seek_bar" />
                         
                     <!-- 播放/暂停按钮 -->
                     <ImageButton
@@ -176,7 +179,8 @@
                         android:focusable="true"
                         android:focusableInTouchMode="true"
                         android:nextFocusLeft="@id/auto_select_word_button"
-                        android:nextFocusRight="@id/play_pause_button" />
+                        android:nextFocusRight="@id/play_pause_button"
+                        android:nextFocusUp="@id/seek_bar" />
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>
