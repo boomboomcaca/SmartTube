@@ -16,6 +16,14 @@ public interface StandaloneSmbPlayerView {
     void play(boolean play);
     
     /**
+     * 设置视频播放位置（毫秒）
+     * @param positionMs 位置（毫秒）
+     */
+    default void setPositionMs(long positionMs) {
+        // 默认实现，实际类需要覆写此方法
+    }
+    
+    /**
      * 获取ExoPlayer的PlayerView
      */
     PlayerView getPlayerView();

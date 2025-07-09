@@ -1569,6 +1569,30 @@ public class SubtitleWordSelectionController {
      * 从当前字幕的开始时间重新播放视频
      */
     private void seekToCurrentSubtitleStartTime() {
+        // 先检查是否在SMB播放器环境中
+        if (mContext instanceof StandaloneSmbPlayerView) {
+            Log.d(TAG, "检测到SMB播放器环境，使用SMB专用跳转方法");
+            StandaloneSmbPlayerView smbView = (StandaloneSmbPlayerView) mContext;
+            
+            long seekPosition = mLastSubtitleChangeTime > 0 ? mLastSubtitleChangeTime : 
+                smbView.getPlayerView().getPlayer().getCurrentPosition();
+            Log.d(TAG, "SMB播放器: 跳转到位置: " + seekPosition + "ms");
+            
+            // 退出选词模式
+            exitWordSelectionMode();
+            
+            // 使用SMB播放器接口设置位置
+            smbView.setPositionMs(seekPosition);
+            
+            // 确保开始播放
+            smbView.play(true);
+            
+            // 激活跳转保护
+            activateSeekProtection();
+            return;
+        }
+        
+        // 以下是原始YouTube播放器的处理逻辑
         PlaybackView view = mPlaybackPresenter.getView();
         if (view == null) {
             Log.e(TAG, "无法获取播放视图，取消定位操作");

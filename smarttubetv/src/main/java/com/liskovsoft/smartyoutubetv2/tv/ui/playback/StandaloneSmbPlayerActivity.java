@@ -1341,6 +1341,16 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         return mPlayerView;
     }
     
+    @Override
+    public void setPositionMs(long positionMs) {
+        android.util.Log.d(TAG, "setPositionMs: 设置播放位置为 " + positionMs + "ms");
+        if (mPresenter != null) {
+            mPresenter.setPositionMs(positionMs);
+            updatePosition(positionMs);
+            updateSeekBarForPosition(positionMs);
+        }
+    }
+    
     /**
      * 隐藏控制界面
      */
