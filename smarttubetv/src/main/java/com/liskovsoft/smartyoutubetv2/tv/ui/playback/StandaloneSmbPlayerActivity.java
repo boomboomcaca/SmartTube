@@ -306,7 +306,15 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         
         // 点击播放器区域显示/隐藏控制界面
         mPlayerView.setOnClickListener(v -> {
-            toggleControlsVisibility();
+            if (mControlsVisible) {
+                hideControls();
+            } else {
+                showControls();
+                // 点击显示控制栏时，焦点设置在进度条上
+                if (mSeekBar != null) {
+                    mSeekBar.requestFocus();
+                }
+            }
         });
         
         // 播放/暂停按钮点击事件
@@ -818,6 +826,46 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         
         // 处理按键按下事件
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            // 处理方向键和导航键
+            switch (keyCode) {
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                    // 如果控制栏不可见，按下方向键显示控制栏并将焦点设置到倍速按钮
+                    if (!mControlsVisible) {
+                        showControls();
+                        // 焦点直接落在倍速按钮上
+                        focusOnSpeedButton();
+                        return true;
+                    }
+                    break;
+                    
+                case KeyEvent.KEYCODE_DPAD_CENTER:
+                case KeyEvent.KEYCODE_ENTER:
+                    // 如果控制栏不可见，按下确认键显示控制栏
+                    if (!mControlsVisible) {
+                        showControls();
+                        return true;
+                    }
+                    break;
+                    
+                case KeyEvent.KEYCODE_DPAD_LEFT:
+                    // 如果控制栏不可见且没有字幕，快退
+                    if (!mControlsVisible && 
+                            (mWordSelectionController == null || !mWordSelectionController.hasSubtitleText())) {
+                        seekBackward();
+                        return true;
+                    }
+                    break;
+                    
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    // 如果控制栏不可见且没有字幕，快进
+                    if (!mControlsVisible && 
+                            (mWordSelectionController == null || !mWordSelectionController.hasSubtitleText())) {
+                        seekForward();
+                        return true;
+                    }
+                    break;
+            }
+            
             // 左右键处理 - 根据不同状态有不同行为
             if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 // 如果控制栏不可见且有字幕，则进入选词模式
@@ -1307,11 +1355,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             mTitleContainer.setVisibility(View.VISIBLE);
             mControlsVisible = true;
             
-            // 设置初始焦点
-            if (mSeekBar != null) {
-                // 默认焦点在进度条上
-                mSeekBar.requestFocus();
-            }
+            // 注意：不在此设置默认焦点，由调用方决定焦点
             
             // 安排自动隐藏
             scheduleHideControls();
@@ -1326,6 +1370,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             hideControls();
         } else {
             showControls();
+            // 当通过点击播放器区域显示控制栏时，默认焦点在进度条上
+            if (mSeekBar != null) {
+                mSeekBar.requestFocus();
+            }
         }
     }
     
@@ -1839,5 +1887,13 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         }
     }
 
+    /**
+     * 设置焦点到倍速按钮
+     */
+    private void focusOnSpeedButton() {
+        if (mPlaybackSpeedContainer != null) {
+            mPlaybackSpeedContainer.requestFocus();
+        }
+    }
 
 } 
