@@ -83,8 +83,8 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private boolean mControlsVisible = true; // 初始状态控制界面可见
     
     // 倍速播放相关
-    private static final float[] PLAYBACK_SPEEDS = {0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f, 5.0f, 10.0f};
-    private int mCurrentSpeedIndex = 2; // 默认索引为2，对应1.0x速度
+    private static final float[] PLAYBACK_SPEEDS = {0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f, 5.0f, 10.0f};
+    private int mCurrentSpeedIndex = 3; // 默认索引为3，对应1.0x速度
     private long mLastClickTime = 0;
     private static final long CLICK_TIMEOUT = 500; // 长按判断阈值
     
@@ -240,10 +240,13 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             mLastSelectedSpeed = playerData.getSmbPlayerLastSpeed();
             android.util.Log.d("SpeedToggle", "初始化视图 - 加载上次选择的非1x倍速: " + mLastSelectedSpeed);
             
-            if (mLastSelectedSpeed <= 0.5f || Math.abs(mLastSelectedSpeed - 1.0f) < 0.001f) {
+            if (mLastSelectedSpeed <= 0.25f || Math.abs(mLastSelectedSpeed - 1.0f) < 0.001f) {
                 // 确保mLastSelectedSpeed不为1.0x或过小值
                 mLastSelectedSpeed = 2.0f; // 默认使用2.0x作为备选倍速
                 android.util.Log.d("SpeedToggle", "上次选择的倍速无效，使用默认值: " + mLastSelectedSpeed);
+                
+                // 保存默认值
+                playerData.setSmbPlayerLastSpeed(mLastSelectedSpeed);
             }
             
             // 查找对应的倍速索引
@@ -578,64 +581,15 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        android.util.Log.d(TAG, "onKeyDown: keyCode=" + keyCode);
-        
-        // 处理返回键
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
-            // 如果控制栏可见，则隐藏控制栏而不是退出播放器
-            if (mControlsVisible) {
-                hideControls();
-                return true;
-            }
-            
-            // 控制栏不可见时，退出播放器
-            finish();
-            return true;
-        }
-        
-        // 处理音量键
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            // 如果之前是静音状态，解除静音
-            if (mIsMuted) {
-                mIsMuted = false;
-                updateMuteButton(mIsMuted);
-                
-                // 保存静音状态
-                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
-                        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
-                playerData.setSmbPlayerMuted(false);
-            }
-            
-            // 调整音量
-            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-                float currentVolume = mPresenter.getVolume();
-                float newVolume = Math.min(currentVolume + 0.1f, 1.0f);
-                mPresenter.setVolume(newVolume);
-                showVolumeMessage((int)(newVolume * 100));
-            } else {
-                float currentVolume = mPresenter.getVolume();
-                float newVolume = Math.max(currentVolume - 0.1f, 0);
-                mPresenter.setVolume(newVolume);
-                showVolumeMessage((int)(newVolume * 100));
-            }
-            
-            // 保存最后的非零音量
-            if (mPresenter.getVolume() > 0) {
-                mLastVolume = mPresenter.getVolume();
-            }
-            
-            // 重置自动隐藏计时器或显示控制栏
-            if (mControlsVisible) {
-                scheduleHideControls();
-            } else {
-                showControls();
-            }
-            
-            return true;
-        }
-        
-        // 媒体控制按键
         switch (keyCode) {
+            case KeyEvent.KEYCODE_MEDIA_REWIND:
+                seekBackward();
+                return true;
+                
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                seekForward();
+                return true;
+                
             case KeyEvent.KEYCODE_MEDIA_PLAY:
                 play(true);
                 updatePlayPauseButton(true);
@@ -651,14 +605,6 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 play(!isPlaying);
                 updatePlayPauseButton(!isPlaying);
                 return true;
-        }
-        
-        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-            // 检查焦点是否在播放速度按钮上
-            if (mPlaybackSpeedContainer != null && mPlaybackSpeedContainer.isFocused()) { // 更新引用
-                togglePlaybackSpeed();
-                return true;
-            }
         }
         
         return super.onKeyDown(keyCode, event);
@@ -755,10 +701,16 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                             if (event.isLongPress()) {
                                 showPlaybackSpeedMenu();
                                 return true;
+                            } else if (event.getRepeatCount() == 0) {
+                                // 短按事件 - 在1.0x和上次设定的倍速之间切换
+                                togglePlaybackSpeed();
+                                
+                                // 显示提示消息
+                                float currentSpeed = PLAYBACK_SPEEDS[mCurrentSpeedIndex];
+                                showSpeedMessage(currentSpeed);
+                                return true;
                             }
-                            
-                            // 短按事件会在onClick中处理
-                            return false;
+                            return true;
                         }
                         return super.dispatchKeyEvent(event);
                         
@@ -1558,20 +1510,18 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     }
 
     /**
-     * 设置播放速度按钮的点击和长按事件
+     * 设置播放速度按钮的交互行为
+     * 注意：不需要在此添加点击监听器，OK键点击事件通过dispatchKeyEvent处理
      */
     private void setupPlaybackSpeedButton() {
         if (mPlaybackSpeedContainer != null) {
-            // 普通点击事件 - 循环切换预设速度
-            mPlaybackSpeedContainer.setOnClickListener(v -> {
-                togglePlaybackSpeed();
-            });
+            // 移除所有可能的点击监听器，只通过OK键控制
+            mPlaybackSpeedContainer.setOnClickListener(null);
+            mPlaybackSpeedContainer.setOnLongClickListener(null);
             
-            // 长按事件 - 显示速度选择菜单
-            mPlaybackSpeedContainer.setOnLongClickListener(v -> {
-                showPlaybackSpeedMenu();
-                return true;
-            });
+            // 确保按钮可以获得焦点
+            mPlaybackSpeedContainer.setFocusable(true);
+            mPlaybackSpeedContainer.setFocusableInTouchMode(true);
         }
     }
     
@@ -1582,12 +1532,12 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         android.util.Log.d("SpeedToggle", "开始切换播放速度");
         android.util.Log.d("SpeedToggle", "当前速度索引: " + mCurrentSpeedIndex + ", 对应速度: " + PLAYBACK_SPEEDS[mCurrentSpeedIndex]);
         android.util.Log.d("SpeedToggle", "上次选定速度: " + mLastSelectedSpeed);
-        android.util.Log.d("SpeedToggle", "1x速度索引: " + getSpeedIndex(1.0f));
+        android.util.Log.d("SpeedToggle", "1x速度索引: " + findSpeedIndex(1.0f));
         
         // 获取1x速度的索引
-        int normalSpeedIndex = getSpeedIndex(1.0f);
+        int normalSpeedIndex = findSpeedIndex(1.0f);
         
-        // 在1x和上次设定的速度之间切换
+        // 在1.0x和上次设定的速度之间切换
         if (Math.abs(PLAYBACK_SPEEDS[mCurrentSpeedIndex] - 1.0f) < 0.001f) {
             // 当前是1x，切换到上次设定的倍速
             android.util.Log.d("SpeedToggle", "当前是1x，切换到上次设定的倍速: " + mLastSelectedSpeed);
@@ -1615,7 +1565,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         android.util.Log.d("SpeedToggle", "设置播放速度: " + speed);
         
         // 找到最接近的预设速度索引
-        mCurrentSpeedIndex = getSpeedIndex(speed);
+        mCurrentSpeedIndex = findSpeedIndex(speed);
         float actualSpeed = PLAYBACK_SPEEDS[mCurrentSpeedIndex];
         
         android.util.Log.d("SpeedToggle", "实际设置的速度索引: " + mCurrentSpeedIndex + ", 对应速度: " + actualSpeed);
@@ -1645,24 +1595,37 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     /**
      * 获取最接近指定速度的预设速度索引
      */
-    private int getSpeedIndex(float speed) {
-        // 默认为1x的索引
-        int defaultIndex = 0;
-        for (int i = 0; i < PLAYBACK_SPEEDS.length; i++) {
-            if (PLAYBACK_SPEEDS[i] == 1.0f) {
-                defaultIndex = i;
-                break;
+    private int findSpeedIndex(float speed) {
+        if (speed <= 0) {
+            // 无效值，返回1.0x倍速的索引
+            for (int i = 0; i < PLAYBACK_SPEEDS.length; i++) {
+                if (Math.abs(PLAYBACK_SPEEDS[i] - 1.0f) < 0.001f) {
+                    return i;
+                }
             }
+            return 3; // 默认值，对应1.0x的索引
         }
         
-        // 查找完全匹配
+        // 首先查找完全匹配的速度
         for (int i = 0; i < PLAYBACK_SPEEDS.length; i++) {
             if (Math.abs(PLAYBACK_SPEEDS[i] - speed) < 0.001f) {
                 return i;
             }
         }
         
-        return defaultIndex; // 如果没找到匹配，返回默认1x速度的索引
+        // 如果没有完全匹配的，找最接近的
+        int closestIndex = 0;
+        float minDiff = Math.abs(PLAYBACK_SPEEDS[0] - speed);
+        
+        for (int i = 1; i < PLAYBACK_SPEEDS.length; i++) {
+            float diff = Math.abs(PLAYBACK_SPEEDS[i] - speed);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestIndex = i;
+            }
+        }
+        
+        return closestIndex;
     }
     
     /**
@@ -1699,7 +1662,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      */
     private void showPlaybackSpeedMenu() {
         // 创建弹出菜单
-        PopupMenu popupMenu = new PopupMenu(this, mPlaybackSpeedContainer); // 更新引用
+        PopupMenu popupMenu = new PopupMenu(this, mPlaybackSpeedContainer);
         android.view.Menu menu = popupMenu.getMenu();
         
         // 添加速度选项
@@ -1715,6 +1678,15 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             if (index >= 0 && index < PLAYBACK_SPEEDS.length) {
                 mCurrentSpeedIndex = index;
                 float newSpeed = PLAYBACK_SPEEDS[mCurrentSpeedIndex];
+                
+                // 如果选择的不是1x速度，则保存为上次选定的速度
+                if (Math.abs(newSpeed - 1.0f) > 0.001f) {
+                    mLastSelectedSpeed = newSpeed;
+                    // 持久化保存上次选定的倍速
+                    com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                            com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+                    playerData.setSmbPlayerLastSpeed(mLastSelectedSpeed);
+                }
                 
                 // 应用新的播放速度
                 applySpeed(newSpeed);
@@ -1752,29 +1724,6 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     }
     
     /**
-     * 查找与给定速度最接近的索引
-     */
-    private int findSpeedIndex(float speed) {
-        if (speed <= 0) {
-            return 2; // 默认为1.0x
-        }
-        
-        // 查找最接近的值
-        int closestIndex = 0;
-        float minDiff = Math.abs(PLAYBACK_SPEEDS[0] - speed);
-        
-        for (int i = 1; i < PLAYBACK_SPEEDS.length; i++) {
-            float diff = Math.abs(PLAYBACK_SPEEDS[i] - speed);
-            if (diff < minDiff) {
-                minDiff = diff;
-                closestIndex = i;
-            }
-        }
-        
-        return closestIndex;
-    }
-    
-    /**
      * 更新播放速度按钮显示
      */
     private void updatePlaybackSpeedButton() {
@@ -1789,11 +1738,21 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             mPlaybackSpeedContainer.setBackgroundTintList(android.content.res.ColorStateList.valueOf(backgroundColor));
             
             // 更新显示内容
-            if (currentSpeed != 1.0f) {
+            if (Math.abs(currentSpeed - 1.0f) > 0.001f) {
                 // 非标准速度时，显示速度值文本
                 mPlaybackSpeedIcon.setVisibility(View.GONE);
                 mPlaybackSpeedText.setVisibility(View.VISIBLE);
-                mPlaybackSpeedText.setText(currentSpeed + "x");
+                
+                // 格式化速度文本，避免小数点后太多位
+                String speedText;
+                if (currentSpeed == (int)currentSpeed) {
+                    // 整数速度值，如2.0显示为2x
+                    speedText = (int)currentSpeed + "x";
+                } else {
+                    // 非整数速度值，如1.5显示为1.5x
+                    speedText = currentSpeed + "x";
+                }
+                mPlaybackSpeedText.setText(speedText);
             } else {
                 // 标准速度时，显示默认图标
                 mPlaybackSpeedIcon.setVisibility(View.VISIBLE);
@@ -1819,8 +1778,18 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      * 显示播放速度消息
      */
     private void showSpeedMessage(float speed) {
+        // 格式化速度文本，避免小数点后太多位
+        String speedText;
+        if (speed == (int)speed) {
+            // 整数速度值，如2.0显示为2x
+            speedText = (int)speed + "x";
+        } else {
+            // 非整数速度值，如1.5显示为1.5x
+            speedText = speed + "x";
+        }
+        
         com.liskovsoft.sharedutils.helpers.MessageHelpers.showMessage(this, 
-                "播放速度: " + speed + "x");
+                "播放速度: " + speedText);
     }
 
     /**
@@ -1862,18 +1831,11 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             });
         }
         
-        // 设置倍速播放按钮点击事件
+        // 播放速度按钮只通过OK键操作，不设置点击监听器
         if (mPlaybackSpeedContainer != null) {
-            mPlaybackSpeedContainer.setOnClickListener(v -> {
-                togglePlaybackSpeed();
-                updatePlaybackSpeedButton();
-            });
-            
-            // 长按显示倍速选择菜单
-            mPlaybackSpeedContainer.setOnLongClickListener(v -> {
-                showPlaybackSpeedMenu();
-                return true;
-            });
+            // 确保按钮可以获得焦点
+            mPlaybackSpeedContainer.setFocusable(true);
+            mPlaybackSpeedContainer.setFocusableInTouchMode(true);
         }
     }
 
