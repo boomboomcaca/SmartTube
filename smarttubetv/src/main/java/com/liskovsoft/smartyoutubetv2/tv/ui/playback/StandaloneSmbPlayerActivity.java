@@ -1277,12 +1277,12 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         if (mAutoSelectWordButton != null) {
             // 根据状态设置不同图标
             mAutoSelectWordButton.setImageResource(isEnabled ?
-                android.R.drawable.ic_input_get :  // 使用Android自带的一个绿色图标表示开启状态
-                android.R.drawable.ic_dialog_info); // 使用普通信息图标表示关闭状态
+                android.R.drawable.ic_menu_edit :  // 使用编辑图标表示开启状态(更直观地表达"选词"功能)
+                android.R.drawable.ic_menu_close_clear_cancel); // 使用取消图标表示关闭状态
                 
             // 设置不同的背景色
             mAutoSelectWordButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                isEnabled ? 0xFF4CAF50 : 0x00000000)); // 启用时为绿色，禁用时透明
+                isEnabled ? 0xFF4CAF50 : 0xFFE57373)); // 启用时为绿色，禁用时为红色
         }
     }
 
