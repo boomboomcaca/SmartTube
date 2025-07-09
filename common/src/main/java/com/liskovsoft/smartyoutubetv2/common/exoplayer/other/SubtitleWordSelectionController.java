@@ -533,17 +533,11 @@ public class SubtitleWordSelectionController {
                     Log.d(TAG, "检测到双击，已取消之前的单击处理任务");
                 }
                 
-                // 双击逻辑
-                Log.d(TAG, "检测到双击OK按键 - 时间差: " + timeSinceLastClick + "ms");
+                // 双击逻辑：跳转到字幕开始时间并继续播放
+                Log.d(TAG, "检测到双击OK按键 - 执行跳转并播放");
                 
-                // 修改双击行为：始终跳转到字幕开始位置，不再处理解释窗口和单词标记
-                if (!isSeekProtectionActive()) {
-                    seekToCurrentSubtitleStartTime();
-                    MessageHelpers.showMessage(mContext, "跳转到字幕开始位置");
-                } else {
-                    Log.d(TAG, "跳转保护已激活，忽略跳转请求");
-                    MessageHelpers.showMessage(mContext, "跳转保护中，请稍后再试");
-                }
+                // 直接跳转，不做额外检查
+                seekToCurrentSubtitleStartTime();
                 
                 return true;
             }
@@ -1041,18 +1035,35 @@ public class SubtitleWordSelectionController {
      * 设置当前字幕文本
      */
     public void setCurrentSubtitleText(List<Cue> cues) {
+        // 记录调用此方法的时间，确保始终有最新的字幕时间记录
+        long currentTime = System.currentTimeMillis();
+        
         if (cues == null || cues.isEmpty()) {
             // 保存之前的字幕，但记录当前字幕为空
             if (!mCurrentSubtitleText.isEmpty()) {
                 mLastSubtitleText = mCurrentSubtitleText;
-                mLastSubtitleChangeTime = System.currentTimeMillis();
+                mLastSubtitleChangeTime = currentTime;
+                
+                // 如果播放器可用，获取准确的播放位置
+                if (mPlaybackPresenter != null && mPlaybackPresenter.getView() != null) {
+                    try {
+                        long positionMs = mPlaybackPresenter.getView().getPositionMs();
+                        if (positionMs > 0) {
+                            mLastSubtitleChangeTime = positionMs;
+                            Log.d(TAG, "字幕消失，记录准确的播放位置: " + positionMs + "ms");
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "获取播放位置失败，使用当前时间: " + currentTime + "ms", e);
+                    }
+                }
+                
                 Log.d(TAG, "字幕消失，保存上一字幕: " + 
                       (mLastSubtitleText.length() > 50 ? mLastSubtitleText.substring(0, 50) + "..." : mLastSubtitleText));
             }
             
             // 如果已经在选词模式且有自动选词标记，不清空当前字幕文本
             if (!mIsWordSelectionMode || (mCurrentTranslationState != null && !mCurrentTranslationState.isAutoSelected)) {
-            mCurrentSubtitleText = "";
+                mCurrentSubtitleText = "";
             } else {
                 Log.d(TAG, "保持当前字幕文本不变 - 处于自动选词模式");
             }
@@ -1067,10 +1078,27 @@ public class SubtitleWordSelectionController {
                   ", 新字幕: " + 
                   (newSubtitleText.length() > 30 ? newSubtitleText.substring(0, 30) + "..." : newSubtitleText));
             
-            // 仅记录字幕变化时间，但不更新文本或分词
+            // 仍然记录字幕变化时间，但不更新文本或分词
             if (!newSubtitleText.equals(mCurrentSubtitleText)) {
                 mLastSubtitleText = mCurrentSubtitleText;
-                mLastSubtitleChangeTime = System.currentTimeMillis();
+                
+                // 获取准确的播放位置
+                if (mPlaybackPresenter != null && mPlaybackPresenter.getView() != null) {
+                    try {
+                        long positionMs = mPlaybackPresenter.getView().getPositionMs();
+                        if (positionMs > 0) {
+                            mLastSubtitleChangeTime = positionMs;
+                            Log.d(TAG, "记录准确的播放位置: " + positionMs + "ms");
+                        } else {
+                            mLastSubtitleChangeTime = currentTime;
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "获取播放位置失败，使用当前时间: " + currentTime + "ms", e);
+                        mLastSubtitleChangeTime = currentTime;
+                    }
+                } else {
+                    mLastSubtitleChangeTime = currentTime;
+                }
             }
             return;
         }
@@ -1086,7 +1114,24 @@ public class SubtitleWordSelectionController {
         if (isSubtitleChanged) {
             // 记录字幕变化时间
             mLastSubtitleText = oldSubtitleText;
-            mLastSubtitleChangeTime = System.currentTimeMillis();
+            
+            // 获取准确的播放位置
+            if (mPlaybackPresenter != null && mPlaybackPresenter.getView() != null) {
+                try {
+                    long positionMs = mPlaybackPresenter.getView().getPositionMs();
+                    if (positionMs > 0) {
+                        mLastSubtitleChangeTime = positionMs;
+                        Log.d(TAG, "字幕变化，记录准确的播放位置: " + positionMs + "ms");
+                    } else {
+                        mLastSubtitleChangeTime = currentTime;
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "获取播放位置失败，使用当前时间: " + currentTime + "ms", e);
+                    mLastSubtitleChangeTime = currentTime;
+                }
+            } else {
+                mLastSubtitleChangeTime = currentTime;
+            }
             
             Log.d(TAG, "字幕变化 - 新: " + 
                   (mCurrentSubtitleText.length() > 50 ? mCurrentSubtitleText.substring(0, 50) + "..." : mCurrentSubtitleText) +
@@ -1533,32 +1578,23 @@ public class SubtitleWordSelectionController {
         long currentPositionMs = view.getPositionMs();
         Log.d(TAG, "当前播放位置: " + currentPositionMs + "ms");
         
+        // 简化跳转逻辑，确保一定会跳转
         if (mLastSubtitleChangeTime > 0) {
-            Log.d(TAG, "使用记录的字幕变化时间: " + mLastSubtitleChangeTime + "ms");
-            
-            long timeDiff = Math.abs(currentPositionMs - mLastSubtitleChangeTime);
-            if (timeDiff > 10000) {
-                Log.w(TAG, "记录的字幕时间与当前时间相差太大: " + timeDiff + "ms");
-                
-                if (mLastSubtitleChangeTime > currentPositionMs + 5000 || 
-                    mLastSubtitleChangeTime < currentPositionMs - 30000) {
-                    Log.w(TAG, "使用当前播放位置代替不合理的字幕时间");
-                    view.setPositionMs(currentPositionMs);
-                    MessageHelpers.showMessage(mContext, "使用当前位置重新播放");
-                    view.setPlayWhenReady(true);
-                    activateSeekProtection();
-                    return;
-                }
-            }
-            
+            Log.d(TAG, "跳转到字幕开始时间: " + mLastSubtitleChangeTime + "ms");
             view.setPositionMs(mLastSubtitleChangeTime);
         } else {
-            Log.w(TAG, "没有记录的字幕变化时间，使用当前位置");
+            // 如果没有记录字幕时间，则使用当前位置
+            Log.d(TAG, "没有记录的字幕时间，使用当前位置");
             view.setPositionMs(currentPositionMs);
-            MessageHelpers.showMessage(mContext, "使用当前位置重新播放");
         }
         
+        // 退出选词模式，并开始播放
+        exitWordSelectionMode();
+        
+        // 确保开始播放
         view.setPlayWhenReady(true);
+        
+        // 激活跳转保护
         activateSeekProtection();
     }
     
