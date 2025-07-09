@@ -101,6 +101,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
     private List<String> mLastAudioLanguages;
     private final Runnable mPersistStateInt = this::persistStateInt;
     private boolean mIsLegacyCodecsForced;
+    private boolean mIsSmbPlayerMuted; // 添加SMB播放器静音状态变量
 
     private static class SpeedItem {
         public String channelId;
@@ -845,6 +846,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         mLastAudioLanguages = Helpers.parseStrList(split, 60);
         mIsVideoFlipEnabled = Helpers.parseBoolean(split, 61, false);
         mIsAutoSelectLastWordEnabled = Helpers.parseBoolean(split, 52, false);
+        mIsSmbPlayerMuted = Helpers.parseBoolean(split, 62, false);
 
         if (speeds != null) {
             for (String speedSpec : speeds) {
@@ -875,7 +877,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
                 mIsGlobalEndingTimeEnabled, mIsEndingTimeEnabled, mIsDoubleRefreshRateEnabled, mIsSeekConfirmPlayEnabled,
                 mStartSeekIncrementMs, null, mSubtitleScale, mPlayerVolume, mIsTooltipsEnabled, mSubtitlePosition, mIsNumberKeySeekEnabled,
                 mIsSkip24RateEnabled, mAfrPauseMs, mIsLiveChatEnabled, mLastSubtitleFormats, mLastSpeed, mRotationAngle, mZoomPercents, mPlaybackMode, mAudioLanguage, mSubtitleLanguage, mEnabledSubtitlesPerChannel, mIsSubtitlesPerChannelEnabled,
-                mIsSpeedPerChannelEnabled, Helpers.mergeArray(mSpeeds.values().toArray()), mPitch, mIsSkipShortsEnabled, mLastAudioLanguages, mIsVideoFlipEnabled, mIsAutoSelectLastWordEnabled
+                mIsSpeedPerChannelEnabled, Helpers.mergeArray(mSpeeds.values().toArray()), mPitch, mIsSkipShortsEnabled, mLastAudioLanguages, mIsVideoFlipEnabled, mIsAutoSelectLastWordEnabled, mIsSmbPlayerMuted
         ));
 
         //onDataChange();
@@ -897,6 +899,15 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
 
     public void enableAutoSelectLastWord(boolean enable) {
         mIsAutoSelectLastWordEnabled = enable;
+        persistState();
+    }
+
+    public boolean isSmbPlayerMuted() {
+        return mIsSmbPlayerMuted;
+    }
+
+    public void setSmbPlayerMuted(boolean muted) {
+        mIsSmbPlayerMuted = muted;
         persistState();
     }
 }

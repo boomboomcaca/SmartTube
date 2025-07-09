@@ -72,12 +72,17 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private SeekBar mSeekBar;
     private ImageButton mPlayPauseButton;
     private ImageButton mAutoSelectWordButton; // 添加自动选词按钮引用
+    private ImageButton mMuteButton; // 添加静音按钮引用
     private Handler mHandler;
     private boolean mIsUserSeeking;
     private boolean mControlsVisible = true; // 初始状态控制界面可见
     
     // 添加字幕管理器
     private com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager mSubtitleManager;
+    
+    // 添加静音状态记忆
+    private boolean mIsMuted = false;
+    private float mLastVolume = 1.0f; // 保存静音前的音量
     
     private final Runnable mHideUIRunnable = new Runnable() {
         @Override
@@ -107,6 +112,11 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         
         // 初始化控制栏自动隐藏
         mHandler.postDelayed(mHideUIRunnable, AUTO_HIDE_DELAY_MS);
+        
+        // 应用初始的静音设置
+        if (mIsMuted && mPresenter != null) {
+            mPresenter.setVolume(0);
+        }
         
         // 初始化字幕选词控制器
         if (mPlayerView != null) {
@@ -138,6 +148,14 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
                     com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
             updateAutoSelectWordButton(playerData.isAutoSelectLastWordEnabled());
+            
+            // 初始化静音状态
+            mIsMuted = playerData.isSmbPlayerMuted();
+            updateMuteButton(mIsMuted);
+            if (mIsMuted) {
+                mLastVolume = mPresenter.getVolume();
+                mPresenter.setVolume(0);
+            }
             
             // 启动自动隐藏UI的定时器
             scheduleHideControls();
@@ -178,6 +196,22 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         mSeekBar = findViewById(R.id.seek_bar);
         mPlayPauseButton = findViewById(R.id.play_pause_button);
         mAutoSelectWordButton = findViewById(R.id.auto_select_word_button); // 初始化自动选词按钮
+        mMuteButton = findViewById(R.id.mute_button); // 初始化静音按钮
+
+        // 初始化静音按钮
+        mMuteButton = findViewById(R.id.mute_button);
+        if (mMuteButton != null) {
+            // 加载保存的静音状态
+            com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                    com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+            mIsMuted = playerData.isSmbPlayerMuted();
+            
+            // 设置点击事件
+            mMuteButton.setOnClickListener(v -> toggleMute());
+            
+            // 初始化按钮状态
+            updateMuteButton(mIsMuted);
+        }
     }
     
     private void initListeners() {
@@ -495,6 +529,47 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         android.util.Log.d(TAG, "onKeyDown: keyCode=" + keyCode);
+        
+        // 处理音量键
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            // 如果之前是静音状态，解除静音
+            if (mIsMuted) {
+                mIsMuted = false;
+                updateMuteButton(mIsMuted);
+                
+                // 保存静音状态
+                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+                playerData.setSmbPlayerMuted(false);
+            }
+            
+            // 调整音量
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                float currentVolume = mPresenter.getVolume();
+                float newVolume = Math.min(currentVolume + 0.1f, 1.0f);
+                mPresenter.setVolume(newVolume);
+                showVolumeMessage((int)(newVolume * 100));
+            } else {
+                float currentVolume = mPresenter.getVolume();
+                float newVolume = Math.max(currentVolume - 0.1f, 0);
+                mPresenter.setVolume(newVolume);
+                showVolumeMessage((int)(newVolume * 100));
+            }
+            
+            // 保存最后的非零音量
+            if (mPresenter.getVolume() > 0) {
+                mLastVolume = mPresenter.getVolume();
+            }
+            
+            // 重置自动隐藏计时器
+            if (mControlsVisible) {
+                scheduleHideControls();
+            } else {
+                showControls();
+            }
+            
+            return true;
+        }
         
         // 检查并刷新选词控制器状态 - 这是修复核心
         if (keyCode == KeyEvent.KEYCODE_BACK && mWordSelectionController != null) {
@@ -1287,6 +1362,22 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     }
 
     /**
+     * 更新静音按钮状态
+     */
+    private void updateMuteButton(boolean isMuted) {
+        if (mMuteButton != null) {
+            // 根据静音状态设置不同的图标
+            mMuteButton.setImageResource(isMuted ? 
+                R.drawable.ic_volume_off : 
+                R.drawable.ic_volume_up);
+            
+            // 设置不同的背景色
+            mMuteButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                isMuted ? 0xFFE57373 : 0xFF4CAF50)); // 静音时为红色，正常时为绿色
+        }
+    }
+
+    /**
      * 初始化字幕选词控制器
      * @param subtitleView 字幕视图
      * @param rootView 根视图
@@ -1443,5 +1534,45 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             mPresenter.setPositionMs(newPosition);
         updatePosition(newPosition);
         updateSeekBarForPosition(newPosition);
+    }
+
+    /**
+     * 切换静音状态
+     */
+    private void toggleMute() {
+        mIsMuted = !mIsMuted;
+        
+        if (mIsMuted) {
+            // 保存当前音量，然后设置为0
+            mLastVolume = mPresenter.getVolume();
+            mPresenter.setVolume(0);
+        } else {
+            // 恢复之前的音量
+            mPresenter.setVolume(mLastVolume);
+        }
+        
+        // 更新静音按钮状态
+        updateMuteButton(mIsMuted);
+        
+        // 保存静音状态
+        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+        playerData.setSmbPlayerMuted(mIsMuted);
+        
+        // 显示提示
+        android.widget.Toast.makeText(this, 
+                "SMB播放器静音: " + (mIsMuted ? "开启" : "关闭"), 
+                android.widget.Toast.LENGTH_SHORT).show();
+                
+        // 重置控制栏自动隐藏计时器
+        scheduleHideControls();
+    }
+
+    /**
+     * 显示音量消息
+     */
+    private void showVolumeMessage(int volumePercent) {
+        com.liskovsoft.sharedutils.helpers.MessageHelpers.showMessage(this, 
+                this.getString(com.liskovsoft.smartyoutubetv2.common.R.string.volume, volumePercent));
     }
 } 

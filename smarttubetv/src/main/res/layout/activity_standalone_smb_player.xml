@@ -134,6 +134,21 @@
                         android:layout_height="0dp"
                         android:layout_weight="1" />
                     
+                    <!-- 添加静音开关按钮 -->
+                    <ImageButton
+                        android:id="@+id/mute_button"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:src="@drawable/ic_volume_up"
+                        android:background="@drawable/player_control_button_background"
+                        android:contentDescription="静音开关"
+                        android:layout_marginEnd="12dp"
+                        android:padding="3dp"
+                        android:focusable="true"
+                        android:focusableInTouchMode="true"
+                        android:nextFocusLeft="@id/seek_bar"
+                        android:nextFocusRight="@id/auto_select_word_button" />
+                        
                     <!-- 添加自动选词开关 -->
                     <ImageButton
                         android:id="@+id/auto_select_word_button"
@@ -146,7 +161,7 @@
                         android:padding="3dp"
                         android:focusable="true"
                         android:focusableInTouchMode="true"
-                        android:nextFocusLeft="@id/seek_bar"
+                        android:nextFocusLeft="@id/mute_button"
                         android:nextFocusRight="@id/play_pause_button" />
                         
                     <!-- 播放/暂停按钮 -->

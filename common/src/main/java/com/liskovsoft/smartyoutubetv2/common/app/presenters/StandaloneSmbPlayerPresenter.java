@@ -485,4 +485,23 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
     public SimpleExoPlayer getExoPlayer() {
         return mExoPlayer;
     }
+    
+    /**
+     * 获取当前播放器音量（0-1范围）
+     */
+    public float getVolume() {
+        if (mExoPlayer != null) {
+            return mExoPlayer.getVolume();
+        }
+        return 1.0f; // 默认音量
+    }
+    
+    /**
+     * 设置播放器音量（0-1范围）
+     */
+    public void setVolume(float volume) {
+        if (mExoPlayer != null) {
+            mExoPlayer.setVolume(volume);
+        }
+    }
 } 
