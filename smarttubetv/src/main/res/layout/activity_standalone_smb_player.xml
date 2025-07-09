@@ -77,79 +77,93 @@
             android:id="@+id/controls_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingTop="8dp"
-        android:paddingBottom="16dp"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:visibility="visible">
+            android:orientation="vertical"
+            android:paddingTop="8dp"
+            android:paddingBottom="16dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:visibility="visible">
 
-        <!-- 播放进度条 -->
-        <SeekBar
-            android:id="@+id/seek_bar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:progressTint="@android:color/white"
-            android:thumbTint="@android:color/white" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <TextView
-                android:id="@+id/position_view"
-                android:layout_width="wrap_content"
+            <!-- 播放进度条 -->
+            <SeekBar
+                android:id="@+id/seek_bar"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="@android:color/white"
-                android:textSize="14sp"
-                android:text="00:00" />
+                android:layout_marginBottom="8dp"
+                android:progressDrawable="@drawable/player_seekbar_style"
+                android:thumb="@drawable/player_seekbar_thumb"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:nextFocusLeft="@id/seek_bar"
+                android:nextFocusRight="@id/seek_bar" />
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="@android:color/white"
-                android:textSize="14sp"
-                android:text=" / "
-                android:layout_marginStart="4dp"
-                android:layout_marginEnd="4dp" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-            <TextView
-                android:id="@+id/duration_view"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@android:color/white"
-                android:textSize="14sp"
-                android:text="00:00" />
-                
-                <!-- 弹性空间，使按钮靠右对齐 -->
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
-                
-                <!-- 添加自动选词开关 -->
-                <ImageButton
-                    android:id="@+id/auto_select_word_button"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:src="@android:drawable/ic_menu_close_clear_cancel"
-                    android:background="?android:attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="字幕结束时自动选择最后一个单词"
-                    android:layout_marginEnd="8dp" />
+                <TextView
+                    android:id="@+id/position_view"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@android:color/white"
+                    android:textSize="14sp"
+                    android:text="00:00" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@android:color/white"
+                    android:textSize="14sp"
+                    android:text=" / "
+                    android:layout_marginStart="4dp"
+                    android:layout_marginEnd="4dp" />
+
+                <TextView
+                    android:id="@+id/duration_view"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@android:color/white"
+                    android:textSize="14sp"
+                    android:text="00:00" />
                     
-                <!-- 播放/暂停按钮 -->
-                <ImageButton
-                    android:id="@+id/play_pause_button"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:src="@drawable/exo_controls_pause"
-                    android:background="?android:attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="播放/暂停" />
+                    <!-- 弹性空间，使按钮靠右对齐 -->
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                    
+                    <!-- 添加自动选词开关 -->
+                    <ImageButton
+                        android:id="@+id/auto_select_word_button"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:src="@android:drawable/ic_menu_close_clear_cancel"
+                        android:background="@drawable/player_control_button_background"
+                        android:contentDescription="字幕结束时自动选择最后一个单词"
+                        android:layout_marginEnd="12dp"
+                        android:padding="3dp"
+                        android:focusable="true"
+                        android:focusableInTouchMode="true"
+                        android:nextFocusLeft="@id/seek_bar"
+                        android:nextFocusRight="@id/play_pause_button" />
+                        
+                    <!-- 播放/暂停按钮 -->
+                    <ImageButton
+                        android:id="@+id/play_pause_button"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:src="@drawable/exo_controls_pause"
+                        android:background="@drawable/player_control_button_background"
+                        android:contentDescription="播放/暂停"
+                        android:padding="3dp"
+                        android:focusable="true"
+                        android:focusableInTouchMode="true"
+                        android:nextFocusLeft="@id/auto_select_word_button"
+                        android:nextFocusRight="@id/play_pause_button" />
+                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
-    </LinearLayout>
 
 </FrameLayout> 

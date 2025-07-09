@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 按下状态 -->
+    <item android:state_pressed="true">
+        <shape android:shape="oval">
+            <size android:width="20dp" android:height="20dp" />
+            <solid android:color="#FFFFFF" />
+            <stroke android:width="2dp" android:color="#4080FF" />
+        </shape>
+    </item>
+    
+    <!-- 焦点状态 - 明显更大的拇指 -->
+    <item android:state_focused="true">
+        <shape android:shape="oval">
+            <size android:width="24dp" android:height="24dp" />
+            <solid android:color="#80FFFFFF" />
+            <stroke android:width="3dp" android:color="#80FFFFFF" />
+        </shape>
+    </item>
+    
+    <!-- 默认状态 -->
+    <item>
+        <shape android:shape="oval">
+            <size android:width="16dp" android:height="16dp" />
+            <solid android:color="#FFFFFF" />
+        </shape>
+    </item>
+</selector> 
