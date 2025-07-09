@@ -164,8 +164,42 @@
                         android:focusable="true"
                         android:focusableInTouchMode="true"
                         android:nextFocusLeft="@id/mute_button"
-                        android:nextFocusRight="@id/play_pause_button"
+                        android:nextFocusRight="@id/playback_speed_container"
                         android:nextFocusUp="@id/seek_bar" />
+                        
+                    <!-- 添加倍速播放按钮 - 使用FrameLayout包含ImageView和TextView -->
+                    <FrameLayout
+                        android:id="@+id/playback_speed_container"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:background="@drawable/player_control_button_background"
+                        android:contentDescription="倍速播放"
+                        android:layout_marginEnd="12dp"
+                        android:focusable="true"
+                        android:focusableInTouchMode="true"
+                        android:nextFocusLeft="@id/auto_select_word_button"
+                        android:nextFocusRight="@id/play_pause_button"
+                        android:nextFocusUp="@id/seek_bar">
+                        
+                        <!-- 播放速度图标 -->
+                        <ImageView
+                            android:id="@+id/playback_speed_icon"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:src="@android:drawable/ic_menu_recent_history"
+                            android:padding="3dp" />
+                            
+                        <!-- 播放速度文本 -->
+                        <TextView
+                            android:id="@+id/playback_speed_text"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:gravity="center"
+                            android:textColor="@android:color/white"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:visibility="gone" />
+                    </FrameLayout>
                         
                     <!-- 播放/暂停按钮 -->
                     <ImageButton
@@ -178,7 +212,7 @@
                         android:padding="3dp"
                         android:focusable="true"
                         android:focusableInTouchMode="true"
-                        android:nextFocusLeft="@id/auto_select_word_button"
+                        android:nextFocusLeft="@id/playback_speed_container"
                         android:nextFocusRight="@id/play_pause_button"
                         android:nextFocusUp="@id/seek_bar" />
                 </LinearLayout>

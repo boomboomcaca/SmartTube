@@ -102,6 +102,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
     private final Runnable mPersistStateInt = this::persistStateInt;
     private boolean mIsLegacyCodecsForced;
     private boolean mIsSmbPlayerMuted; // 添加SMB播放器静音状态变量
+    private float mSmbPlayerSpeed = 1.0f; // 添加SMB播放器速度变量
 
     private static class SpeedItem {
         public String channelId;
@@ -847,6 +848,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         mIsVideoFlipEnabled = Helpers.parseBoolean(split, 61, false);
         mIsAutoSelectLastWordEnabled = Helpers.parseBoolean(split, 52, false);
         mIsSmbPlayerMuted = Helpers.parseBoolean(split, 62, false);
+        mSmbPlayerSpeed = Helpers.parseFloat(split, 63, 1.0f);
 
         if (speeds != null) {
             for (String speedSpec : speeds) {
@@ -877,7 +879,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
                 mIsGlobalEndingTimeEnabled, mIsEndingTimeEnabled, mIsDoubleRefreshRateEnabled, mIsSeekConfirmPlayEnabled,
                 mStartSeekIncrementMs, null, mSubtitleScale, mPlayerVolume, mIsTooltipsEnabled, mSubtitlePosition, mIsNumberKeySeekEnabled,
                 mIsSkip24RateEnabled, mAfrPauseMs, mIsLiveChatEnabled, mLastSubtitleFormats, mLastSpeed, mRotationAngle, mZoomPercents, mPlaybackMode, mAudioLanguage, mSubtitleLanguage, mEnabledSubtitlesPerChannel, mIsSubtitlesPerChannelEnabled,
-                mIsSpeedPerChannelEnabled, Helpers.mergeArray(mSpeeds.values().toArray()), mPitch, mIsSkipShortsEnabled, mLastAudioLanguages, mIsVideoFlipEnabled, mIsAutoSelectLastWordEnabled, mIsSmbPlayerMuted
+                mIsSpeedPerChannelEnabled, Helpers.mergeArray(mSpeeds.values().toArray()), mPitch, mIsSkipShortsEnabled, mLastAudioLanguages, mIsVideoFlipEnabled, mIsAutoSelectLastWordEnabled, mIsSmbPlayerMuted, mSmbPlayerSpeed
         ));
 
         //onDataChange();
@@ -902,12 +904,33 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         persistState();
     }
 
+    /**
+     * 获取SMB播放器是否静音
+     */
     public boolean isSmbPlayerMuted() {
         return mIsSmbPlayerMuted;
     }
-
+    
+    /**
+     * 设置SMB播放器静音状态
+     */
     public void setSmbPlayerMuted(boolean muted) {
         mIsSmbPlayerMuted = muted;
+        persistState();
+    }
+    
+    /**
+     * 获取SMB播放器播放速度
+     */
+    public float getSmbPlayerSpeed() {
+        return mSmbPlayerSpeed;
+    }
+    
+    /**
+     * 设置SMB播放器播放速度
+     */
+    public void setSmbPlayerSpeed(float speed) {
+        mSmbPlayerSpeed = speed;
         persistState();
     }
 }

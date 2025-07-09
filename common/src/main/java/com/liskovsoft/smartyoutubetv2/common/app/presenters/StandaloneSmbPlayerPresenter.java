@@ -504,4 +504,28 @@ public class StandaloneSmbPlayerPresenter extends BasePresenter<StandaloneSmbPla
             mExoPlayer.setVolume(volume);
         }
     }
+    
+    /**
+     * 获取当前播放速度
+     */
+    public float getSpeed() {
+        if (mExoPlayer != null) {
+            PlaybackParameters params = mExoPlayer.getPlaybackParameters();
+            return params.speed;
+        }
+        return 1.0f; // 默认速度
+    }
+    
+    /**
+     * 设置播放速度
+     * @param speed 播放速度，范围0.5x-10.0x
+     */
+    public void setSpeed(float speed) {
+        if (mExoPlayer != null) {
+            // 确保速度在合理范围内
+            float validSpeed = Math.max(0.5f, Math.min(speed, 10.0f));
+            PlaybackParameters params = new PlaybackParameters(validSpeed);
+            mExoPlayer.setPlaybackParameters(params);
+        }
+    }
 } 

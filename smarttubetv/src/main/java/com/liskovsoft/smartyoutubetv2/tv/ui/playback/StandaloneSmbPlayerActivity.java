@@ -14,6 +14,8 @@ import android.widget.TextView;
 import android.widget.ImageView;
 import android.widget.ImageButton;
 import android.view.Gravity;
+import android.widget.PopupMenu;
+import android.view.MenuItem;
 
 import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
@@ -71,11 +73,20 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private TextView mDurationView;
     private SeekBar mSeekBar;
     private ImageButton mPlayPauseButton;
-    private ImageButton mAutoSelectWordButton; // 添加自动选词按钮引用
     private ImageButton mMuteButton; // 添加静音按钮引用
+    private ImageButton mAutoSelectWordButton; // 添加自动选词按钮引用
+    private FrameLayout mPlaybackSpeedContainer; // 更改为FrameLayout
+    private ImageView mPlaybackSpeedIcon; // 添加播放速度图标
+    private TextView mPlaybackSpeedText; // 添加播放速度文本
     private Handler mHandler;
     private boolean mIsUserSeeking;
     private boolean mControlsVisible = true; // 初始状态控制界面可见
+    
+    // 倍速播放相关
+    private static final float[] PLAYBACK_SPEEDS = {0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f, 5.0f, 10.0f};
+    private int mCurrentSpeedIndex = 2; // 默认索引为2，对应1.0x速度
+    private long mLastClickTime = 0;
+    private static final long CLICK_TIMEOUT = 500; // 长按判断阈值
     
     // 添加字幕管理器
     private com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager mSubtitleManager;
@@ -195,8 +206,11 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         mDurationView = findViewById(R.id.duration_view);
         mSeekBar = findViewById(R.id.seek_bar);
         mPlayPauseButton = findViewById(R.id.play_pause_button);
+        mMuteButton = findViewById(R.id.mute_button);
         mAutoSelectWordButton = findViewById(R.id.auto_select_word_button); // 初始化自动选词按钮
-        mMuteButton = findViewById(R.id.mute_button); // 初始化静音按钮
+        mPlaybackSpeedContainer = findViewById(R.id.playback_speed_container); // 更新引用
+        mPlaybackSpeedIcon = findViewById(R.id.playback_speed_icon); // 添加图标引用
+        mPlaybackSpeedText = findViewById(R.id.playback_speed_text); // 添加文本引用
 
         // 初始化静音按钮
         mMuteButton = findViewById(R.id.mute_button);
@@ -211,6 +225,27 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             
             // 初始化按钮状态
             updateMuteButton(mIsMuted);
+        }
+        
+        // 初始化倍速播放按钮
+        // mPlaybackSpeedButton = findViewById(R.id.playback_speed_button); // 移除旧的引用
+        if (mPlaybackSpeedContainer != null) {
+            // 加载保存的倍速设置
+            com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                    com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+            float savedSpeed = playerData.getSmbPlayerSpeed();
+            
+            // 查找对应的倍速索引
+            mCurrentSpeedIndex = findSpeedIndex(savedSpeed);
+            
+            // 设置点击和长按事件
+            setupPlaybackSpeedButton();
+            
+            // 更新按钮文本
+            updatePlaybackSpeedButton();
+            
+            // 应用倍速设置
+            applySpeed(PLAYBACK_SPEEDS[mCurrentSpeedIndex]);
         }
     }
     
@@ -603,6 +638,14 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 return true;
         }
         
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+            // 检查焦点是否在播放速度按钮上
+            if (mPlaybackSpeedContainer != null && mPlaybackSpeedContainer.isFocused()) { // 更新引用
+                togglePlaybackSpeed();
+                return true;
+            }
+        }
+        
         return super.onKeyDown(keyCode, event);
     }
     
@@ -636,13 +679,14 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                             isFocusOnBottomControls = true;
                         } else if (mAutoSelectWordButton != null && mAutoSelectWordButton.isFocused()) {
                             isFocusOnBottomControls = true;
+                        } else if (mPlaybackSpeedContainer != null && mPlaybackSpeedContainer.isFocused()) {
+                            isFocusOnBottomControls = true;
                         } else if (mPlayPauseButton != null && mPlayPauseButton.isFocused()) {
                             isFocusOnBottomControls = true;
                         }
                         
                         // 如果焦点在底部控件上，使用默认的焦点导航
                         if (isFocusOnBottomControls) {
-                            android.util.Log.d(TAG, "焦点在底部控件上，使用默认的焦点导航");
                             return super.dispatchKeyEvent(event);
                         }
                         
@@ -656,39 +700,50 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                         
                     case KeyEvent.KEYCODE_DPAD_UP:
                     case KeyEvent.KEYCODE_DPAD_DOWN:
+                        // 上下键用于控制栏导航，不触发字幕相关功能
+                        return super.dispatchKeyEvent(event);
+                        
                     case KeyEvent.KEYCODE_DPAD_CENTER:
                     case KeyEvent.KEYCODE_ENTER:
-                        // 上下键和确认键用于控制栏导航和操作，不触发字幕相关功能
-                        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-                            // 检查焦点是否在播放/暂停按钮上
-                            if (mPlayPauseButton != null && mPlayPauseButton.isFocused()) {
-                                boolean isPlaying = isPlaying();
-                                play(!isPlaying);
-                                updatePlayPauseButton(!isPlaying);
-                                scheduleHideControls();
+                        // 检查焦点是否在播放/暂停按钮上
+                        if (mPlayPauseButton != null && mPlayPauseButton.isFocused()) {
+                            boolean isPlaying = isPlaying();
+                            play(!isPlaying);
+                            updatePlayPauseButton(!isPlaying);
+                            scheduleHideControls();
+                            return true;
+                        }
+                        // 检查焦点是否在静音按钮上
+                        else if (mMuteButton != null && mMuteButton.isFocused()) {
+                            toggleMute();
+                            scheduleHideControls();
+                            return true;
+                        }
+                        // 检查焦点是否在自动选词按钮上
+                        else if (mAutoSelectWordButton != null && mAutoSelectWordButton.isFocused()) {
+                            // 切换自动选词状态
+                            com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                                    com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+                            boolean isEnabled = playerData.isAutoSelectLastWordEnabled();
+                            playerData.enableAutoSelectLastWord(!isEnabled);
+                            updateAutoSelectWordButton(!isEnabled);
+                            
+                            // 显示提示
+                            android.widget.Toast.makeText(this, 
+                                    "字幕结束时自动选择最后一个单词: " + (!isEnabled ? "开启" : "关闭"), 
+                                    android.widget.Toast.LENGTH_SHORT).show();
+                            return true;
+                        }
+                        // 检查焦点是否在播放速度容器上
+                        else if (mPlaybackSpeedContainer != null && mPlaybackSpeedContainer.isFocused()) {
+                            // 检测是否是长按
+                            if (event.isLongPress()) {
+                                showPlaybackSpeedMenu();
                                 return true;
                             }
-                            // 检查焦点是否在静音按钮上
-                            else if (mMuteButton != null && mMuteButton.isFocused()) {
-                                toggleMute();
-                                scheduleHideControls();
-                                return true;
-                            }
-                            // 检查焦点是否在自动选词按钮上
-                            else if (mAutoSelectWordButton != null && mAutoSelectWordButton.isFocused()) {
-                                // 切换自动选词状态
-                                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
-                                        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
-                                boolean isEnabled = playerData.isAutoSelectLastWordEnabled();
-                                playerData.enableAutoSelectLastWord(!isEnabled);
-                                updateAutoSelectWordButton(!isEnabled);
-                                
-                                // 显示提示
-                                android.widget.Toast.makeText(this, 
-                                        "字幕结束时自动选择最后一个单词: " + (!isEnabled ? "开启" : "关闭"), 
-                                        android.widget.Toast.LENGTH_SHORT).show();
-                                return true;
-                            }
+                            
+                            // 短按事件会在onClick中处理
+                            return false;
                         }
                         return super.dispatchKeyEvent(event);
                         
@@ -1485,5 +1540,240 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private void showVolumeMessage(int volumePercent) {
         com.liskovsoft.sharedutils.helpers.MessageHelpers.showMessage(this, 
                 this.getString(com.liskovsoft.smartyoutubetv2.common.R.string.volume, volumePercent));
+    }
+
+    /**
+     * 设置播放速度按钮的点击和长按事件
+     */
+    private void setupPlaybackSpeedButton() {
+        if (mPlaybackSpeedContainer != null) {
+            // 普通点击事件 - 循环切换预设速度
+            mPlaybackSpeedContainer.setOnClickListener(v -> {
+                togglePlaybackSpeed();
+            });
+            
+            // 长按事件 - 显示速度选择菜单
+            mPlaybackSpeedContainer.setOnLongClickListener(v -> {
+                showPlaybackSpeedMenu();
+                return true;
+            });
+        }
+    }
+    
+    /**
+     * 切换播放速度
+     */
+    private void togglePlaybackSpeed() {
+        cyclePlaybackSpeed();
+    }
+    
+    /**
+     * 循环切换预设播放速度
+     */
+    private void cyclePlaybackSpeed() {
+        mCurrentSpeedIndex = (mCurrentSpeedIndex + 1) % PLAYBACK_SPEEDS.length;
+        float newSpeed = PLAYBACK_SPEEDS[mCurrentSpeedIndex];
+        
+        // 应用新的播放速度
+        if (mPresenter != null) {
+            mPresenter.setSpeed(newSpeed);
+        }
+        
+        // 保存播放速度设置
+        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+        playerData.setSmbPlayerSpeed(newSpeed);
+        
+        // 显示当前播放速度提示
+        android.widget.Toast.makeText(this, "播放速度: " + newSpeed + "x", android.widget.Toast.LENGTH_SHORT).show();
+        
+        // 更新按钮显示
+        updatePlaybackSpeedButton();
+        
+        // 重置控制栏自动隐藏计时器
+        scheduleHideControls();
+    }
+    
+    /**
+     * 显示播放速度选择菜单
+     */
+    private void showPlaybackSpeedMenu() {
+        // 创建弹出菜单
+        PopupMenu popupMenu = new PopupMenu(this, mPlaybackSpeedContainer); // 更新引用
+        android.view.Menu menu = popupMenu.getMenu();
+        
+        // 添加速度选项
+        for (int i = 0; i < PLAYBACK_SPEEDS.length; i++) {
+            float speed = PLAYBACK_SPEEDS[i];
+            String label = speed + "x";
+            menu.add(0, i, i, label).setChecked(i == mCurrentSpeedIndex);
+        }
+        
+        // 设置菜单项点击监听器
+        popupMenu.setOnMenuItemClickListener(item -> {
+            int index = item.getItemId();
+            if (index >= 0 && index < PLAYBACK_SPEEDS.length) {
+                mCurrentSpeedIndex = index;
+                float newSpeed = PLAYBACK_SPEEDS[mCurrentSpeedIndex];
+                
+                // 应用新的播放速度
+                applySpeed(newSpeed);
+                
+                // 更新按钮显示
+                updatePlaybackSpeedButton();
+                
+                // 显示提示
+                showSpeedMessage(newSpeed);
+                
+                // 保存设置
+                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+                playerData.setSmbPlayerSpeed(newSpeed);
+                
+                return true;
+            }
+            return false;
+        });
+        
+        // 显示菜单
+        popupMenu.show();
+        
+        // 重置控制栏自动隐藏计时器
+        scheduleHideControls();
+    }
+    
+    /**
+     * 应用播放速度
+     */
+    private void applySpeed(float speed) {
+        if (mPresenter != null) {
+            mPresenter.setSpeed(speed);
+        }
+    }
+    
+    /**
+     * 查找与给定速度最接近的索引
+     */
+    private int findSpeedIndex(float speed) {
+        if (speed <= 0) {
+            return 2; // 默认为1.0x
+        }
+        
+        // 查找最接近的值
+        int closestIndex = 0;
+        float minDiff = Math.abs(PLAYBACK_SPEEDS[0] - speed);
+        
+        for (int i = 1; i < PLAYBACK_SPEEDS.length; i++) {
+            float diff = Math.abs(PLAYBACK_SPEEDS[i] - speed);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestIndex = i;
+            }
+        }
+        
+        return closestIndex;
+    }
+    
+    /**
+     * 更新播放速度按钮显示
+     */
+    private void updatePlaybackSpeedButton() {
+        if (mPlaybackSpeedContainer != null && mPlaybackSpeedIcon != null && mPlaybackSpeedText != null) {
+            float currentSpeed = PLAYBACK_SPEEDS[mCurrentSpeedIndex];
+            
+            // 设置按钮描述
+            mPlaybackSpeedContainer.setContentDescription("播放速度: " + currentSpeed + "x");
+            
+            // 根据速度设置不同的背景色
+            int backgroundColor = getSpeedButtonColor(currentSpeed);
+            mPlaybackSpeedContainer.setBackgroundTintList(android.content.res.ColorStateList.valueOf(backgroundColor));
+            
+            // 更新显示内容
+            if (currentSpeed != 1.0f) {
+                // 非标准速度时，显示速度值文本
+                mPlaybackSpeedIcon.setVisibility(View.GONE);
+                mPlaybackSpeedText.setVisibility(View.VISIBLE);
+                mPlaybackSpeedText.setText(currentSpeed + "x");
+            } else {
+                // 标准速度时，显示默认图标
+                mPlaybackSpeedIcon.setVisibility(View.VISIBLE);
+                mPlaybackSpeedText.setVisibility(View.GONE);
+            }
+        }
+    }
+    
+    /**
+     * 根据速度获取按钮颜色
+     */
+    private int getSpeedButtonColor(float speed) {
+        if (speed < 1.0f) {
+            return 0xFFE57373; // 减速为红色
+        } else if (speed > 1.0f) {
+            return 0xFF4CAF50; // 加速为绿色
+        } else {
+            return 0xFF2196F3; // 正常速度为蓝色
+        }
+    }
+    
+    /**
+     * 显示播放速度消息
+     */
+    private void showSpeedMessage(float speed) {
+        com.liskovsoft.sharedutils.helpers.MessageHelpers.showMessage(this, 
+                "播放速度: " + speed + "x");
+    }
+
+    /**
+     * 初始化控制栏按钮
+     */
+    private void initControlsButtons() {
+        // 初始化播放/暂停按钮
+        if (mPlayPauseButton != null) {
+            mPlayPauseButton.setOnClickListener(v -> {
+                boolean isPlaying = isPlaying();
+                play(!isPlaying);
+                updatePlayPauseButton(!isPlaying);
+                scheduleHideControls();
+            });
+        }
+        
+        // 初始化静音按钮
+        if (mMuteButton != null) {
+            mMuteButton.setOnClickListener(v -> {
+                toggleMute();
+                scheduleHideControls();
+            });
+        }
+        
+        // 初始化自动选词按钮
+        if (mAutoSelectWordButton != null) {
+            mAutoSelectWordButton.setOnClickListener(v -> {
+                // 切换自动选词状态
+                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+                boolean isEnabled = playerData.isAutoSelectLastWordEnabled();
+                playerData.enableAutoSelectLastWord(!isEnabled);
+                updateAutoSelectWordButton(!isEnabled);
+                
+                // 显示提示
+                android.widget.Toast.makeText(this, 
+                        "字幕结束时自动选择最后一个单词: " + (!isEnabled ? "开启" : "关闭"), 
+                        android.widget.Toast.LENGTH_SHORT).show();
+            });
+        }
+        
+        // 设置倍速播放按钮点击事件
+        if (mPlaybackSpeedContainer != null) {
+            mPlaybackSpeedContainer.setOnClickListener(v -> {
+                togglePlaybackSpeed();
+                updatePlaybackSpeedButton();
+            });
+            
+            // 长按显示倍速选择菜单
+            mPlaybackSpeedContainer.setOnLongClickListener(v -> {
+                showPlaybackSpeedMenu();
+                return true;
+            });
+        }
     }
 } 
