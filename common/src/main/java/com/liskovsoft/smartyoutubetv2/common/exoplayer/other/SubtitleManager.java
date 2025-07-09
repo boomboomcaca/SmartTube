@@ -421,7 +421,15 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                     // 新字幕出现 - 重置选词状态
                     mHasActiveCues = true;
                     resetWordSelectionState();
-                    mLastSubtitleChangeTimeMs = System.currentTimeMillis(); // 记录字幕变化时间
+                    
+                    // 修改：优先使用播放器当前位置来记录字幕变化时间，更准确
+                    if (mPlayer != null) {
+                        mLastSubtitleChangeTimeMs = mPlayer.getCurrentPosition();
+                        Log.d(TAG, "新字幕出现，使用播放器位置作为字幕开始时间: " + mLastSubtitleChangeTimeMs + "ms");
+                    } else {
+                        mLastSubtitleChangeTimeMs = System.currentTimeMillis();
+                        Log.d(TAG, "新字幕出现，无法获取播放器位置，使用系统时间: " + mLastSubtitleChangeTimeMs + "ms");
+                    }
                     
                     // 更新字幕ID和文本
                     mCurrentSubtitleId = newSubtitleId;
@@ -494,7 +502,15 @@ public class SubtitleManager implements TextOutput, OnDataChange {
                     // 更新当前字幕ID和文本
                     mCurrentSubtitleId = newSubtitleId;
                     mCurrentSubtitleText = newSubtitleText;
-                    mLastSubtitleChangeTimeMs = System.currentTimeMillis(); // 更新字幕变化时间
+                    
+                    // 修改：优先使用播放器当前位置来记录字幕变化时间，更准确
+                    if (mPlayer != null) {
+                        mLastSubtitleChangeTimeMs = mPlayer.getCurrentPosition();
+                        Log.d(TAG, "字幕内容变化，使用播放器位置作为字幕开始时间: " + mLastSubtitleChangeTimeMs + "ms");
+                    } else {
+                        mLastSubtitleChangeTimeMs = System.currentTimeMillis();
+                        Log.d(TAG, "字幕内容变化，无法获取播放器位置，使用系统时间: " + mLastSubtitleChangeTimeMs + "ms");
+                    }
                     
                     // 获取新字幕的结束时间
                     mCurrentSubEndTimeUs = -1;
@@ -888,5 +904,121 @@ public class SubtitleManager implements TextOutput, OnDataChange {
             mPlayer.removeTextOutput(this);
             mPlayer = null;
         }
+    }
+    
+    /**
+     * 获取当前字幕的开始时间（毫秒）
+     * @return 字幕开始时间，如果无法获取则返回-1
+     */
+    public long getCurrentSubtitleStartTimeMs() {
+        // 没有活动字幕时，返回-1
+        if (mSubtitleView == null || !mHasActiveCues) {
+            return -1;
+        }
+        
+        List<Cue> cues = mSubtitleView.getCues();
+        if (cues == null || cues.isEmpty()) {
+            return -1;
+        }
+        
+        // 遍历所有字幕，寻找开始时间
+        for (Cue cue : cues) {
+            long startTimeUs = getSubtitleStartTime(cue);
+            if (startTimeUs > 0) {
+                // 从微秒转换为毫秒
+                return startTimeUs / 1000;
+            }
+        }
+        
+        // 如果没有获取到开始时间，返回字幕变化的时间
+        return mLastSubtitleChangeTimeMs;
+    }
+    
+    /**
+     * 根据字幕对象获取开始时间
+     * @param cue 字幕对象
+     * @return 开始时间（微秒），如果无法获取则返回-1
+     */
+    private long getSubtitleStartTime(Cue cue) {
+        if (cue == null) {
+            return -1;
+        }
+        
+        // 处理WebVTT格式
+        if (cue instanceof com.google.android.exoplayer2.text.webvtt.WebvttCue) {
+            com.google.android.exoplayer2.text.webvtt.WebvttCue webvttCue = 
+                    (com.google.android.exoplayer2.text.webvtt.WebvttCue) cue;
+            return webvttCue.startTime;
+        }
+        
+        // 尝试通过反射获取其他格式字幕的开始时间
+        try {
+            // 尝试访问更多可能的开始时间字段名
+            String[] possibleFieldNames = {
+                "startTimeUs", "startTime", "timeIn", "positionUs", "start", "startMs", 
+                "startTimestamp", "timeStart", "position", "enterTime", "timeEnter"
+            };
+            
+            for (String fieldName : possibleFieldNames) {
+                try {
+                    Field field = cue.getClass().getDeclaredField(fieldName);
+                    field.setAccessible(true);
+                    Object value = field.get(cue);
+                    if (value instanceof Number) {
+                        long timeValue = ((Number) value).longValue();
+                        return timeValue;
+                    }
+                } catch (Exception e) {
+                    // 继续尝试下一个字段名
+                }
+            }
+            
+            // 特殊处理：尝试获取字段类型为long的成员变量，可能是开始时间
+            for (Field field : cue.getClass().getDeclaredFields()) {
+                if (field.getType() == long.class || field.getType() == Long.class) {
+                    field.setAccessible(true);
+                    String fieldName = field.getName().toLowerCase();
+                    // 扩展字段名匹配规则，寻找开始时间相关字段
+                    if (fieldName.contains("start") || fieldName.contains("begin") || 
+                        fieldName.contains("in") || fieldName.contains("enter") ||
+                        fieldName.contains("position")) {
+                        Object value = field.get(cue);
+                        if (value instanceof Number) {
+                            long timeValue = ((Number) value).longValue();
+                            // 检查值的合理性（作为微秒时间）
+                            if (timeValue >= 0 && timeValue < 7200000000L) { // 小于2小时
+                                return timeValue;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 进一步探索：检查父类字段
+            Class<?> parentClass = cue.getClass().getSuperclass();
+            if (parentClass != null && !parentClass.equals(Object.class)) {
+                for (Field field : parentClass.getDeclaredFields()) {
+                    if (field.getType() == long.class || field.getType() == Long.class) {
+                        field.setAccessible(true);
+                        String fieldName = field.getName().toLowerCase();
+                        if (fieldName.contains("start") || fieldName.contains("begin") || 
+                            fieldName.contains("in") || fieldName.contains("enter") ||
+                            fieldName.contains("position")) {
+                            Object value = field.get(cue);
+                            if (value instanceof Number) {
+                                long timeValue = ((Number) value).longValue();
+                                if (timeValue >= 0 && timeValue < 7200000000L) {
+                                    return timeValue;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "无法通过反射获取字幕开始时间: " + e.getMessage());
+        }
+        
+        return -1;
     }
 }

@@ -1574,15 +1574,25 @@ public class SubtitleWordSelectionController {
             Log.d(TAG, "检测到SMB播放器环境，使用SMB专用跳转方法");
             StandaloneSmbPlayerView smbView = (StandaloneSmbPlayerView) mContext;
             
-            long seekPosition = mLastSubtitleChangeTime > 0 ? mLastSubtitleChangeTime : 
-                smbView.getPlayerView().getPlayer().getCurrentPosition();
-            Log.d(TAG, "SMB播放器: 跳转到位置: " + seekPosition + "ms");
+            // 修改: 使用字幕的实际开始时间而不是字幕变化时间或当前播放位置
+            // 首先尝试从字幕视图中获取字幕的开始时间
+            long subtitleStartTime = getSubtitleStartTimeMs();
+            
+            // 如果无法获取字幕开始时间，则回退到使用mLastSubtitleChangeTime
+            if (subtitleStartTime <= 0) {
+                subtitleStartTime = mLastSubtitleChangeTime;
+                Log.d(TAG, "无法获取字幕开始时间，使用字幕变化时间作为备选: " + subtitleStartTime + "ms");
+            } else {
+                Log.d(TAG, "成功获取字幕开始时间: " + subtitleStartTime + "ms");
+            }
+            
+            Log.d(TAG, "SMB播放器: 跳转到字幕开始位置: " + subtitleStartTime + "ms");
             
             // 退出选词模式
             exitWordSelectionMode();
             
             // 使用SMB播放器接口设置位置
-            smbView.setPositionMs(seekPosition);
+            smbView.setPositionMs(subtitleStartTime);
             
             // 确保开始播放
             smbView.play(true);
@@ -1620,6 +1630,53 @@ public class SubtitleWordSelectionController {
         
         // 激活跳转保护
         activateSeekProtection();
+    }
+    
+    /**
+     * 尝试获取当前字幕的实际开始时间（毫秒）
+     * @return 字幕开始时间（毫秒），如果无法获取则返回 -1
+     */
+    private long getSubtitleStartTimeMs() {
+        try {
+            // 尝试从字幕视图中获取当前显示的字幕Cue
+            if (mSubtitleView != null) {
+                List<Cue> cues = mSubtitleView.getCues();
+                if (cues != null && !cues.isEmpty()) {
+                    for (Cue cue : cues) {
+                        // 使用反射获取字幕的startTimeUs属性
+                        try {
+                            // 使用反射获取非公开字段
+                            Field startTimeField = cue.getClass().getDeclaredField("startTimeUs");
+                            startTimeField.setAccessible(true);
+                            long startTimeUs = (long) startTimeField.get(cue);
+                            
+                            // 从微秒转换为毫秒
+                            return startTimeUs / 1000;
+                        } catch (Exception e) {
+                            Log.e(TAG, "通过反射获取字幕开始时间失败: " + e.getMessage());
+                        }
+                    }
+                }
+            }
+            
+            // 如果通过字幕视图无法获取，检查是否有字幕管理器可用
+            if (mContext instanceof StandaloneSmbPlayerView) {
+                StandaloneSmbPlayerView smbView = (StandaloneSmbPlayerView) mContext;
+                SubtitleManager subtitleManager = smbView.getSubtitleManager();
+                
+                if (subtitleManager != null) {
+                    // 尝试从字幕管理器获取当前字幕的开始时间
+                    long startTimeMs = subtitleManager.getCurrentSubtitleStartTimeMs();
+                    if (startTimeMs > 0) {
+                        return startTimeMs;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "获取字幕开始时间时发生错误: " + e.getMessage(), e);
+        }
+        
+        return -1; // 无法获取字幕开始时间
     }
     
     /**
