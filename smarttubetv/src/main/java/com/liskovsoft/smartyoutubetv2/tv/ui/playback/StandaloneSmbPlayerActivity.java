@@ -83,7 +83,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     private boolean mControlsVisible = true; // 初始状态控制界面可见
     
     // 倍速播放相关
-    private static final float[] PLAYBACK_SPEEDS = {0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f, 5.0f, 10.0f};
+    private static final float[] PLAYBACK_SPEEDS = {0.75f, 0.8f, 0.9f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 5.0f, 8.0f, 10.0f};
     private int mCurrentSpeedIndex = 3; // 默认索引为3，对应1.0x速度
     private long mLastClickTime = 0;
     private static final long CLICK_TIMEOUT = 500; // 长按判断阈值
