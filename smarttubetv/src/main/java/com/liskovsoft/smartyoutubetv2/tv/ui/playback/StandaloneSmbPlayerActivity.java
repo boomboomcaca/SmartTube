@@ -53,7 +53,7 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     
     // 长按加速相关变量
     private static final int LONG_PRESS_THRESHOLD_MS = 1000; // 长按阈值，1秒
-    private static final int STEP_CHANGE_INTERVAL_MS = 5000; // 每5秒切换一次步进级别
+    private static final int STEP_CHANGE_INTERVAL_MS = 3000; // 每3秒切换一次步进级别
     private boolean mIsLongPress = false; // 是否处于长按状态
     private long mLongPressStartTime = 0; // 长按开始时间
     private int mLongPressStepIndex = 0; // 长按时的步长索引（注意：长按时从索引1开始，即10秒步进）
