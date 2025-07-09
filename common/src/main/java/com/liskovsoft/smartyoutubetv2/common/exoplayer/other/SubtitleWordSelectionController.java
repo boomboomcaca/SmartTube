@@ -91,6 +91,7 @@ public class SubtitleWordSelectionController {
     // 双击检测相关变量
     private long mLastClickTime = 0;
     private static final long DOUBLE_CLICK_TIME_DELTA = 300;
+    private Runnable mPendingSingleClickRunnable = null; // 用于取消单击逻辑的Runnable引用
     
     // 字幕时间记录
     private String mLastSubtitleText = "";
@@ -525,10 +526,17 @@ public class SubtitleWordSelectionController {
             
             // 检测是否是双击
             if (timeSinceLastClick < DOUBLE_CLICK_TIME_DELTA) {
-                // 双击逻辑：跳转到字幕开始时间
+                // 取消之前可能存在的单击处理任务
+                if (mPendingSingleClickRunnable != null) {
+                    mHandler.removeCallbacks(mPendingSingleClickRunnable);
+                    mPendingSingleClickRunnable = null;
+                    Log.d(TAG, "检测到双击，已取消之前的单击处理任务");
+                }
+                
+                // 双击逻辑
                 Log.d(TAG, "检测到双击OK按键 - 时间差: " + timeSinceLastClick + "ms");
                 
-                // 跳转到当前字幕的开始时间
+                // 修改双击行为：始终跳转到字幕开始位置，不再处理解释窗口和单词标记
                 if (!isSeekProtectionActive()) {
                     seekToCurrentSubtitleStartTime();
                     MessageHelpers.showMessage(mContext, "跳转到字幕开始位置");
@@ -541,7 +549,7 @@ public class SubtitleWordSelectionController {
             }
             
             // 单击逻辑
-            mHandler.postDelayed(() -> {
+            mPendingSingleClickRunnable = () -> {
                 Log.d(TAG, "处理单击OK按键 - 当前状态: mIsShowingDefinition=" + mIsShowingDefinition);
                 
                 if (mIsShowingDefinition) {
@@ -583,7 +591,11 @@ public class SubtitleWordSelectionController {
                     // 执行翻译
                     translateCurrentWord();
                 }
-            }, DOUBLE_CLICK_TIME_DELTA);
+                
+                // 任务执行完毕后清除引用
+                mPendingSingleClickRunnable = null;
+            };
+            mHandler.postDelayed(mPendingSingleClickRunnable, DOUBLE_CLICK_TIME_DELTA);
             
             return true;
         }
@@ -1598,6 +1610,12 @@ public class SubtitleWordSelectionController {
         exitWordSelectionMode();
         if (mTTSService != null) {
             mTTSService.stopPlaying();
+        }
+        
+        // 取消所有待处理的任务
+        if (mPendingSingleClickRunnable != null) {
+            mHandler.removeCallbacks(mPendingSingleClickRunnable);
+            mPendingSingleClickRunnable = null;
         }
     }
 }
