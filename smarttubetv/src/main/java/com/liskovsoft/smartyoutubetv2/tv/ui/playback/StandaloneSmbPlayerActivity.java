@@ -106,6 +106,8 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
     // 字幕选词相关
     private SubtitleWordSelectionController mWordSelectionController;
 
+    private float mLastSelectedSpeed = 2.0f; // 存储上次选择的非1x倍速
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -228,15 +230,25 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         }
         
         // 初始化倍速播放按钮
-        // mPlaybackSpeedButton = findViewById(R.id.playback_speed_button); // 移除旧的引用
         if (mPlaybackSpeedContainer != null) {
             // 加载保存的倍速设置
             com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
                     com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
             float savedSpeed = playerData.getSmbPlayerSpeed();
             
+            // 加载上次选择的非1x倍速设置
+            mLastSelectedSpeed = playerData.getSmbPlayerLastSpeed();
+            android.util.Log.d("SpeedToggle", "初始化视图 - 加载上次选择的非1x倍速: " + mLastSelectedSpeed);
+            
+            if (mLastSelectedSpeed <= 0.5f || Math.abs(mLastSelectedSpeed - 1.0f) < 0.001f) {
+                // 确保mLastSelectedSpeed不为1.0x或过小值
+                mLastSelectedSpeed = 2.0f; // 默认使用2.0x作为备选倍速
+                android.util.Log.d("SpeedToggle", "上次选择的倍速无效，使用默认值: " + mLastSelectedSpeed);
+            }
+            
             // 查找对应的倍速索引
             mCurrentSpeedIndex = findSpeedIndex(savedSpeed);
+            android.util.Log.d("SpeedToggle", "当前倍速索引: " + mCurrentSpeedIndex + ", 对应速度: " + PLAYBACK_SPEEDS[mCurrentSpeedIndex]);
             
             // 设置点击和长按事件
             setupPlaybackSpeedButton();
@@ -245,7 +257,10 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             updatePlaybackSpeedButton();
             
             // 应用倍速设置
-            applySpeed(PLAYBACK_SPEEDS[mCurrentSpeedIndex]);
+            if (mPresenter != null) {
+                mPresenter.setSpeed(PLAYBACK_SPEEDS[mCurrentSpeedIndex]);
+                android.util.Log.d("SpeedToggle", "已应用初始倍速: " + PLAYBACK_SPEEDS[mCurrentSpeedIndex]);
+            }
         }
     }
     
@@ -1564,15 +1579,103 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
      * 切换播放速度
      */
     private void togglePlaybackSpeed() {
-        cyclePlaybackSpeed();
+        android.util.Log.d("SpeedToggle", "开始切换播放速度");
+        android.util.Log.d("SpeedToggle", "当前速度索引: " + mCurrentSpeedIndex + ", 对应速度: " + PLAYBACK_SPEEDS[mCurrentSpeedIndex]);
+        android.util.Log.d("SpeedToggle", "上次选定速度: " + mLastSelectedSpeed);
+        android.util.Log.d("SpeedToggle", "1x速度索引: " + getSpeedIndex(1.0f));
+        
+        // 获取1x速度的索引
+        int normalSpeedIndex = getSpeedIndex(1.0f);
+        
+        // 在1x和上次设定的速度之间切换
+        if (Math.abs(PLAYBACK_SPEEDS[mCurrentSpeedIndex] - 1.0f) < 0.001f) {
+            // 当前是1x，切换到上次设定的倍速
+            android.util.Log.d("SpeedToggle", "当前是1x，切换到上次设定的倍速: " + mLastSelectedSpeed);
+            setPlaybackSpeed(mLastSelectedSpeed);
+        } else {
+            // 当前不是1x，保存这个速度，然后切换到1x
+            android.util.Log.d("SpeedToggle", "当前不是1x，保存当前速度: " + PLAYBACK_SPEEDS[mCurrentSpeedIndex] + ", 然后切换到1x");
+            mLastSelectedSpeed = PLAYBACK_SPEEDS[mCurrentSpeedIndex];
+            setPlaybackSpeed(1.0f);
+            
+            // 持久化保存上次选定的倍速
+            com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                    com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+            playerData.setSmbPlayerLastSpeed(mLastSelectedSpeed);
+        }
+        
+        // 重置控制栏自动隐藏计时器
+        scheduleHideControls();
     }
     
     /**
-     * 循环切换预设播放速度
+     * 设置特定的播放速度
+     */
+    private void setPlaybackSpeed(float speed) {
+        android.util.Log.d("SpeedToggle", "设置播放速度: " + speed);
+        
+        // 找到最接近的预设速度索引
+        mCurrentSpeedIndex = getSpeedIndex(speed);
+        float actualSpeed = PLAYBACK_SPEEDS[mCurrentSpeedIndex];
+        
+        android.util.Log.d("SpeedToggle", "实际设置的速度索引: " + mCurrentSpeedIndex + ", 对应速度: " + actualSpeed);
+        
+        // 应用新的播放速度
+        if (mPresenter != null) {
+            mPresenter.setSpeed(actualSpeed);
+            android.util.Log.d("SpeedToggle", "已应用新的播放速度到播放器");
+        } else {
+            android.util.Log.e("SpeedToggle", "错误: mPresenter为null，无法设置播放速度");
+        }
+        
+        // 保存播放速度设置
+        com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData = 
+                com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(this);
+        playerData.setSmbPlayerSpeed(actualSpeed);
+        android.util.Log.d("SpeedToggle", "已保存播放速度设置到PlayerData");
+        
+        // 显示当前播放速度提示
+        android.widget.Toast.makeText(this, "播放速度: " + actualSpeed + "x", android.widget.Toast.LENGTH_SHORT).show();
+        
+        // 更新按钮显示
+        updatePlaybackSpeedButton();
+        android.util.Log.d("SpeedToggle", "已更新播放速度按钮显示");
+    }
+    
+    /**
+     * 获取最接近指定速度的预设速度索引
+     */
+    private int getSpeedIndex(float speed) {
+        // 默认为1x的索引
+        int defaultIndex = 0;
+        for (int i = 0; i < PLAYBACK_SPEEDS.length; i++) {
+            if (PLAYBACK_SPEEDS[i] == 1.0f) {
+                defaultIndex = i;
+                break;
+            }
+        }
+        
+        // 查找完全匹配
+        for (int i = 0; i < PLAYBACK_SPEEDS.length; i++) {
+            if (Math.abs(PLAYBACK_SPEEDS[i] - speed) < 0.001f) {
+                return i;
+            }
+        }
+        
+        return defaultIndex; // 如果没找到匹配，返回默认1x速度的索引
+    }
+    
+    /**
+     * 循环切换预设播放速度（在长按菜单选择速度时使用）
      */
     private void cyclePlaybackSpeed() {
         mCurrentSpeedIndex = (mCurrentSpeedIndex + 1) % PLAYBACK_SPEEDS.length;
         float newSpeed = PLAYBACK_SPEEDS[mCurrentSpeedIndex];
+        
+        // 如果不是1x速度，保存为上次选择的速度
+        if (Math.abs(newSpeed - 1.0f) > 0.001f) {
+            mLastSelectedSpeed = newSpeed;
+        }
         
         // 应用新的播放速度
         if (mPresenter != null) {
@@ -1589,9 +1692,6 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
         
         // 更新按钮显示
         updatePlaybackSpeedButton();
-        
-        // 重置控制栏自动隐藏计时器
-        scheduleHideControls();
     }
     
     /**
@@ -1776,4 +1876,6 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
             });
         }
     }
+
+
 } 

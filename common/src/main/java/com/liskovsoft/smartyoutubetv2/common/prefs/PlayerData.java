@@ -103,6 +103,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
     private boolean mIsLegacyCodecsForced;
     private boolean mIsSmbPlayerMuted; // 添加SMB播放器静音状态变量
     private float mSmbPlayerSpeed = 1.0f; // 添加SMB播放器速度变量
+    private float mSmbPlayerLastSpeed = 2.0f; // 添加SMB播放器上次选定的非1x倍速变量
 
     private static class SpeedItem {
         public String channelId;
@@ -849,6 +850,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         mIsAutoSelectLastWordEnabled = Helpers.parseBoolean(split, 52, false);
         mIsSmbPlayerMuted = Helpers.parseBoolean(split, 62, false);
         mSmbPlayerSpeed = Helpers.parseFloat(split, 63, 1.0f);
+        mSmbPlayerLastSpeed = Helpers.parseFloat(split, 64, 2.0f);
 
         if (speeds != null) {
             for (String speedSpec : speeds) {
@@ -879,7 +881,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
                 mIsGlobalEndingTimeEnabled, mIsEndingTimeEnabled, mIsDoubleRefreshRateEnabled, mIsSeekConfirmPlayEnabled,
                 mStartSeekIncrementMs, null, mSubtitleScale, mPlayerVolume, mIsTooltipsEnabled, mSubtitlePosition, mIsNumberKeySeekEnabled,
                 mIsSkip24RateEnabled, mAfrPauseMs, mIsLiveChatEnabled, mLastSubtitleFormats, mLastSpeed, mRotationAngle, mZoomPercents, mPlaybackMode, mAudioLanguage, mSubtitleLanguage, mEnabledSubtitlesPerChannel, mIsSubtitlesPerChannelEnabled,
-                mIsSpeedPerChannelEnabled, Helpers.mergeArray(mSpeeds.values().toArray()), mPitch, mIsSkipShortsEnabled, mLastAudioLanguages, mIsVideoFlipEnabled, mIsAutoSelectLastWordEnabled, mIsSmbPlayerMuted, mSmbPlayerSpeed
+                mIsSpeedPerChannelEnabled, Helpers.mergeArray(mSpeeds.values().toArray()), mPitch, mIsSkipShortsEnabled, mLastAudioLanguages, mIsVideoFlipEnabled, mIsAutoSelectLastWordEnabled, mIsSmbPlayerMuted, mSmbPlayerSpeed, mSmbPlayerLastSpeed
         ));
 
         //onDataChange();
@@ -931,6 +933,19 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
      */
     public void setSmbPlayerSpeed(float speed) {
         mSmbPlayerSpeed = speed;
+        // 如果不是1x速度，同时更新上次选定的非1x倍速
+        if (Math.abs(speed - 1.0f) > 0.001f) {
+            mSmbPlayerLastSpeed = speed;
+        }
+        persistState();
+    }
+
+    public float getSmbPlayerLastSpeed() {
+        return mSmbPlayerLastSpeed;
+    }
+
+    public void setSmbPlayerLastSpeed(float speed) {
+        mSmbPlayerLastSpeed = speed;
         persistState();
     }
 }

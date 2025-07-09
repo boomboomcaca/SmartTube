@@ -96,7 +96,7 @@
                 android:focusableInTouchMode="true"
                 android:nextFocusLeft="@id/seek_bar"
                 android:nextFocusRight="@id/seek_bar"
-                android:nextFocusDown="@id/mute_button" />
+                android:nextFocusDown="@id/playback_speed_container" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -135,38 +135,6 @@
                         android:layout_height="0dp"
                         android:layout_weight="1" />
                     
-                    <!-- 添加静音开关按钮 -->
-                    <ImageButton
-                        android:id="@+id/mute_button"
-                        android:layout_width="46dp"
-                        android:layout_height="46dp"
-                        android:src="@drawable/ic_volume_up"
-                        android:background="@drawable/player_control_button_background"
-                        android:contentDescription="静音开关"
-                        android:layout_marginEnd="12dp"
-                        android:padding="3dp"
-                        android:focusable="true"
-                        android:focusableInTouchMode="true"
-                        android:nextFocusLeft="@id/mute_button"
-                        android:nextFocusRight="@id/auto_select_word_button"
-                        android:nextFocusUp="@id/seek_bar" />
-                        
-                    <!-- 添加自动选词开关 -->
-                    <ImageButton
-                        android:id="@+id/auto_select_word_button"
-                        android:layout_width="46dp"
-                        android:layout_height="46dp"
-                        android:src="@android:drawable/ic_menu_close_clear_cancel"
-                        android:background="@drawable/player_control_button_background"
-                        android:contentDescription="字幕结束时自动选择最后一个单词"
-                        android:layout_marginEnd="12dp"
-                        android:padding="3dp"
-                        android:focusable="true"
-                        android:focusableInTouchMode="true"
-                        android:nextFocusLeft="@id/mute_button"
-                        android:nextFocusRight="@id/playback_speed_container"
-                        android:nextFocusUp="@id/seek_bar" />
-                        
                     <!-- 添加倍速播放按钮 - 使用FrameLayout包含ImageView和TextView -->
                     <FrameLayout
                         android:id="@+id/playback_speed_container"
@@ -177,8 +145,8 @@
                         android:layout_marginEnd="12dp"
                         android:focusable="true"
                         android:focusableInTouchMode="true"
-                        android:nextFocusLeft="@id/auto_select_word_button"
-                        android:nextFocusRight="@id/play_pause_button"
+                        android:nextFocusLeft="@id/playback_speed_container"
+                        android:nextFocusRight="@id/auto_select_word_button"
                         android:nextFocusUp="@id/seek_bar">
                         
                         <!-- 播放速度图标 -->
@@ -200,6 +168,38 @@
                             android:textStyle="bold"
                             android:visibility="gone" />
                     </FrameLayout>
+                    
+                    <!-- 添加自动选词开关 -->
+                    <ImageButton
+                        android:id="@+id/auto_select_word_button"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:src="@android:drawable/ic_menu_close_clear_cancel"
+                        android:background="@drawable/player_control_button_background"
+                        android:contentDescription="字幕结束时自动选择最后一个单词"
+                        android:layout_marginEnd="12dp"
+                        android:padding="3dp"
+                        android:focusable="true"
+                        android:focusableInTouchMode="true"
+                        android:nextFocusLeft="@id/playback_speed_container"
+                        android:nextFocusRight="@id/mute_button"
+                        android:nextFocusUp="@id/seek_bar" />
+                        
+                    <!-- 添加静音开关按钮 -->
+                    <ImageButton
+                        android:id="@+id/mute_button"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:src="@drawable/ic_volume_up"
+                        android:background="@drawable/player_control_button_background"
+                        android:contentDescription="静音开关"
+                        android:layout_marginEnd="12dp"
+                        android:padding="3dp"
+                        android:focusable="true"
+                        android:focusableInTouchMode="true"
+                        android:nextFocusLeft="@id/auto_select_word_button"
+                        android:nextFocusRight="@id/play_pause_button"
+                        android:nextFocusUp="@id/seek_bar" />
                         
                     <!-- 播放/暂停按钮 -->
                     <ImageButton
@@ -212,7 +212,7 @@
                         android:padding="3dp"
                         android:focusable="true"
                         android:focusableInTouchMode="true"
-                        android:nextFocusLeft="@id/playback_speed_container"
+                        android:nextFocusLeft="@id/mute_button"
                         android:nextFocusRight="@id/play_pause_button"
                         android:nextFocusUp="@id/seek_bar" />
                 </LinearLayout>
