@@ -723,9 +723,12 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                         return super.dispatchKeyEvent(event);
                         
                     case KeyEvent.KEYCODE_BACK:
-                        // 返回键隐藏控制栏
-                        hideControls();
-                        return true;
+                        // 返回键隐藏控制栏，如果控制栏可见则隐藏，否则交给系统处理返回操作
+                        if (mControlsVisible) {
+                            hideControls();
+                            return true;
+                        }
+                        return super.dispatchKeyEvent(event);
                         
                     case KeyEvent.KEYCODE_MENU:
                         // 菜单键切换自动选词状态，但不进入选词模式
@@ -880,9 +883,9 @@ public class StandaloneSmbPlayerActivity extends FragmentActivity implements Sta
                 return super.dispatchKeyEvent(event);
             }
             
-            // 返回键特殊处理 - 直接传递给onKeyDown处理
+            // 返回键特殊处理 - 不再拦截返回事件
             if (keyCode == KeyEvent.KEYCODE_BACK) {
-                return onKeyDown(keyCode, event);
+                return super.dispatchKeyEvent(event);
             }
             
             // 确认键处理 - 显示控制栏
