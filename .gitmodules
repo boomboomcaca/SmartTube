@@ -3,4 +3,8 @@
 	url = https://github.com/yuliskov/SharedModules
 [submodule "MediaServiceCore"]
 	path = MediaServiceCore
-	url = https://github.com/yuliskov/MediaServiceCore
+	url = https://github.com/boomboomcaca/MediaServiceCore.git
+[submodule "leanbackassistant"]
+	path = leanbackassistant
+	url = https://github.com/yuliskov/LeanbackAssistant.git
+[submodule "appupdatechecker2"]
